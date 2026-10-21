@@ -34,7 +34,9 @@ def run(store: Store, request_id: str, owner: str, argv: list[str], *, cwd=None,
     try:
         child = subprocess.Popen(argv, cwd=cwd, shell=False, startupinfo=startup)
     except OSError:
-        store.finish(request_id, owner, token, "failed")
+        released = store.finish(request_id, owner, token, "failed")
+        if released["release_handoff"]["pending_count"]:
+            print(json.dumps({"request_id": request_id, "release_handoff": released["release_handoff"]}))
         raise
     observed = set()
     coordination_failed = False
@@ -71,5 +73,7 @@ def run(store: Store, request_id: str, owner: str, argv: list[str], *, cwd=None,
         time.sleep(0.25)
     if coordination_failed:
         raise CoordinationError("Monitoring failed; command ended but reservation retained for explicit reconciliation")
-    store.finish(request_id, owner, token, "completed" if code == 0 else "failed")
+    released = store.finish(request_id, owner, token, "completed" if code == 0 else "failed")
+    if released["release_handoff"]["pending_count"]:
+        print(json.dumps({"request_id": request_id, "release_handoff": released["release_handoff"]}))
     return code

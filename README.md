@@ -2,11 +2,13 @@
 
 给并行本地对话使用的**协作资源队列**：源码可在 Git 工作树里并行修改，共用编译产物、编辑器、资产和性能测试窗口则先申请占用。独立本机 SQLite 保存队列，MCP 提供工具，命令启动器拿到许可才运行。不是 OpenAI 官方产品。
 
-**当前为 0.3.0 验证原型，不是安全隔离层。** 未经接入的构建、应用或手工操作不受它控制。空队列不代表没有 UE 运行。排到队不代表获得关闭编辑器、丢弃资产或停止他人工作的授权。
+**当前为 0.4.0 验证原型，不是安全隔离层。** 未经接入的构建、应用或手工操作不受它控制。空队列不代表没有 UE 运行。排到队不代表获得关闭编辑器、丢弃资产或停止他人工作的授权。
 
 0.2 新增共享开发状态板、状态新鲜度、成功依赖排序和低噪声变更游标。详见[协作信息与缺口](COORDINATION_DESIGN.md)。它不是完整的 Agent Teams 总控，不自动创建／接管对话或发送消息。
 
 0.3 增加本机只读面板：项目筛选、对话状态、资源队列、版本／证据详情、过期与断线提示。可在普通浏览器或 Codex 浏览器侧栏查看，不是 Codex 原生插件侧栏扩展。
+
+0.4 增加持久化交接通知：真实释放后挑选下一候选，由完成方使用宿主消息工具代发，记录投递受理、明确失败或结果不明；面板显示接收者和通知状态。没有独立后台通知服务，也没有保证消息已读。
 
 ## 架构
 
@@ -38,7 +40,7 @@ Codex 对话 C ─┘                    │ 原子申请全部资源
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -e '.[test]'
 ./.venv/Scripts/python.exe -m pytest -q
-./.venv/Scripts/python.exe scripts/prepare_install.py --python .venv/Scripts/python.exe --target .local/marketplace-v0.3.0
+./.venv/Scripts/python.exe scripts/prepare_install.py --python .venv/Scripts/python.exe --target .local/marketplace-v0.4.0
 ```
 
 Linux 对应解释器为 `.venv/bin/python`。准备脚本拒绝覆盖已有目标，生成独立安装副本，固定其 MCP 和提醒 Hook 使用的解释器；**不修改 Codex 设置、不启动服务、不重启客户端**。源码清单中的默认 `python` 仅适用于已安装依赖的同一解释器，不要误用另一个 Python。
@@ -78,12 +80,38 @@ MCP 也可直接连接准备副本的 `scripts/server.py`，解释器仍使用�
 
 在 Codex 中用 `$resource-coordination`。建议先让两个测试对话在测试资源上申请，不要立即接管已运行的 UE。旧任务必须由其负责人明确交接。
 
-MCP 工具有 16 个：
+MCP 工具有 21 个：
 
 - 原子占用：`queue_status`、`request_resources`、`set_request_dependencies`、`acquire_resources`、`begin_operation`、`renew_lease`、`complete_operation`、`cancel_waiting`、`reconcile_expired`、`plan_ue_resources`。
 - 共享状态：`register_coordination_chat`、`report_development_status`、`import_codex_status_snapshot`、`coordination_board`、`coordination_changes`、`acknowledge_coordination_changes`。
+- 交接通知：`configure_release_notifications`、`release_notifications`、`claim_release_notification`、`acknowledge_release_notification`、`retry_failed_release_notification`。
 
 服务器不提供任意命令执行、杀进程、Git 集成或消息发送能力。
+
+### 谁提醒下一位，失败怎么办？
+
+```text
+登记并获准参与 → 请求资源／排队 → 原子占用 → 工作与记录进程结束
+  → 真实释放＋持久化下一候选通知（同一事务）
+  → 完成方领取通知 → 宿主发送一次 → 记录真实回执
+  → 接收方查队列、重新申请 → 执行前检查 → 原任务内继续工作
+```
+
+同一项目、启用提醒、有受影响且当前满足条件的等待请求，才生成通知。多个共享读取者可同时成为候选；独占请求仍按队列顺序。不因对话回复结束、租期过期或未核查的进程消失而发出“轮到你”。
+
+完成方在结束前查询 `release_notifications`，先核实用户对接收者的授权，再领取 eligible 的 pending 通知；领取后最多调用一次原生 `send_message_to_thread`，再写回真实结果。原子领取防止两个完成方同时代发。通知不会替接收方占位或授权新操作，也不要求对方自动回复。
+
+| 状态 | 处理 |
+| --- | --- |
+| 待发送 `pending` | 已落盘、尚未发；原完成方退出后，其他获准参与者可接手 |
+| 发送中 `sending` | 已领取；领取超时后按结果不明展示，不自动重新分配 |
+| 投递受理 `delivered` | 宿主成功回执匹配目标；不证明已读、开始执行或取得资源 |
+| 明确未发送 `failed` | 保留原因；修复工具／授权等问题并确认未发送后，可显式重新排队 |
+| 结果不明 `uncertain` | 可能已发出；核对原回执，不盲目重发或改用另一通道补发 |
+
+普通队列查询是兜底。**若所有对话都已停止，本版没有后台服务独立唤醒它们。** 官方也提供 [`codex queue`](https://learn.chatgpt.com/docs/developer-commands) 给既有会话排消息，但该通道未在本插件内接入／验证，不能把“已入队”当“已处理”。
+
+启用记录只是协作范围，不是用户授权的独立证明；本机受信任参与者仍需遵守宿主权限。通知回执和租约令牌不要写入 Git。详见[验收边界](ACCEPTANCE.md)。
 
 ### 查看其他对话与安排下一步
 
@@ -129,7 +157,7 @@ $coord = 'plugins/resource-coordinator/scripts/coordinate.py'
 
 自测覆盖真实多进程竞争、FIFO、共享/独占、全部资源原子申请、取消、幂等、过期保留、旧令牌、存活/未知进程拒绝释放、命令未启动证明、前台成功/失败、MCP stdio 和安装副本；另有非 UE 的数据库迁移场景。具体结果看本次报告，不以测试数量替代实际 Codex/UE 接入验收。
 
-安装后可用 `scripts/smoke_install.py --plugin <安装副本目录> --db <全新的隔离数据库绝对路径>` 检查真实 MCP 通信、16 个工具、成功依赖、状态上报及变更确认。它拒绝覆盖已有数据库，不启动 UE、不证明当前 Codex 对话已加载插件。[验收记录](ACCEPTANCE.md) 区分自动测试、安装副本与宿主实际接入。
+安装后可用 `scripts/smoke_install.py --plugin <安装副本目录> --db <全新的隔离数据库绝对路径>` 检查真实 MCP 通信、21 个工具、成功依赖、状态上报、变更确认及模拟消息回执。它拒绝覆盖已有数据库，不启动 UE、不向真实对话发测试消息，也不证明当前 Codex 对话已加载插件。[验收记录](ACCEPTANCE.md) 区分自动测试、安装副本与宿主实际接入。
 
 尚不具备：自动接管旧会话、后台原生事件订阅、操作系统级强制互斥、完备命令解析、任意后台进程追踪、跨机器锁服务、自动抢占、GPU 预算、多人安全认证。状态桥接和里程碑上报仍需参与者执行。全局 Hook 不是可靠的 fail-closed 边界；本版不假装提供。
 

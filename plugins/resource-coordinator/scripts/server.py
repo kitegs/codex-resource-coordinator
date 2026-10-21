@@ -10,10 +10,42 @@ except ImportError:
 from coordinator.store import Store
 from coordinator.profiles import ue_plan
 from coordinator.board import Board
+from coordinator.handoff import Handoffs
 
 server = FastMCP("resource-coordinator", instructions="Local cooperative scheduling only. All chats share one database. A reservation is not user authorization. Expired leases stay blocking. Never kill processes, alter Git, or claim unmanaged applications are locked. Use normal approved execution tools for commands; this server never runs arbitrary commands.")
 store = Store()
 board = Board(store)
+handoffs = Handoffs(store)
+
+
+@server.tool()
+def configure_release_notifications(chat_id: str, enabled: bool, authorization_reference: str = "") -> dict:
+    """Enable only registered human-approved participants. Stored references are not independent consent. No message is sent."""
+    return handoffs.configure(chat_id, enabled, authorization_reference)
+
+
+@server.tool()
+def release_notifications(actor: str, include_finished: bool = False, limit: int = 8) -> dict:
+    """Read durable release handoffs for this enabled project participant. No native message or reply is sent."""
+    return handoffs.listing(actor, include_finished, limit)
+
+
+@server.tool()
+def claim_release_notification(notice_id: str, actor: str) -> dict:
+    """Atomically claim one eligible notice. Returns native host call arguments, not a message receipt or new execution permission."""
+    return handoffs.claim(notice_id, actor)
+
+
+@server.tool()
+def acknowledge_release_notification(notice_id: str, actor: str, claim_token: str, outcome: str, receipt_thread_id: str | None = None, result_code: str = "") -> dict:
+    """Record actual native delivery result. Unknown/timeouts are uncertain, never blindly retried. Does not acquire resources."""
+    return handoffs.acknowledge(notice_id, actor, claim_token, outcome, receipt_thread_id, result_code)
+
+
+@server.tool()
+def retry_failed_release_notification(notice_id: str, actor: str, confirmed_not_sent: bool = False) -> dict:
+    """Explicitly requeue a verified NOT-sent notice after fixing the cause. Never retry an uncertain send. Does not send."""
+    return handoffs.retry_failed(notice_id, actor, confirmed_not_sent)
 
 
 @server.tool()

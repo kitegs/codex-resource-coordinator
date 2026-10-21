@@ -35,24 +35,33 @@ async def smoke(plugin, database, snapshot=None, observed_at=None):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = {tool.name for tool in (await session.list_tools()).tools}
-            assert len(tools) == 16 and "coordination_board" in tools
+            assert len(tools) == 21 and {"coordination_board", "claim_release_notification", "acknowledge_release_notification"}.issubset(tools)
 
             async def call(name, **arguments):
                 return data(await session.call_tool(name, arguments))
 
             await call("register_coordination_chat", chat_id="smoke-observer", label="Smoke observer", project_key="install-smoke")
+            await call("register_coordination_chat", chat_id="smoke-receiver", label="Synthetic handoff receiver", project_key="install-smoke")
+            for chat in ("smoke-observer", "smoke-receiver"):
+                await call("configure_release_notifications", chat_id=chat, enabled=True, authorization_reference="synthetic smoke-test human scope")
             await call("report_development_status", chat_id="smoke-observer", reporter="smoke-observer", work_state="working", summary="Protocol smoke only; host adoption remains unverified", expected_revision=0)
             resources = [{"key": "smoke:isolated-output", "mode": "exclusive"}]
             prerequisite = await call("request_resources", owner="smoke-observer", purpose="Prerequisite", resources=resources)
-            dependent = await call("request_resources", owner="smoke-observer", purpose="Dependent", resources=resources, depends_on=[prerequisite["id"]])
-            waiting = await call("acquire_resources", request_id=dependent["id"], owner="smoke-observer")
+            dependent = await call("request_resources", owner="smoke-receiver", purpose="Dependent", resources=resources, depends_on=[prerequisite["id"]])
+            waiting = await call("acquire_resources", request_id=dependent["id"], owner="smoke-receiver")
             assert waiting["state"] == "waiting" and waiting["dependency_blockers"][0]["id"] == prerequisite["id"]
             for request in (prerequisite, dependent):
-                lease = await call("acquire_resources", request_id=request["id"], owner="smoke-observer")
+                lease = await call("acquire_resources", request_id=request["id"], owner=request["owner"])
                 assert lease["state"] == "leased"
-                args = {"request_id": request["id"], "owner": "smoke-observer", "lease_token": lease["lease_token"]}
+                args = {"request_id": request["id"], "owner": request["owner"], "lease_token": lease["lease_token"]}
                 await call("begin_operation", **args)
                 await call("complete_operation", **args)
+                if request["id"] == prerequisite["id"]:
+                    notice = (await call("release_notifications", actor="smoke-observer"))["notices"][0]
+                    claim = await call("claim_release_notification", notice_id=notice["id"], actor="smoke-observer")
+                    assert claim["host_arguments"]["threadId"] == "smoke-receiver"
+                    ack = await call("acknowledge_release_notification", notice_id=notice["id"], actor="smoke-observer", claim_token=claim["claim_token"], outcome="delivered", receipt_thread_id="smoke-receiver")
+                    assert ack["state"] == "delivered" and ack["reservation_acquired"] is False
             if snapshot is None:
                 snapshot = {"polls": [{"thread": {"id": "smoke-observer", "hostId": "local", "status": {"type": "idle"}}, "latestTurn": {"id": "smoke-turn", "status": "completed"}}]}
                 observed_at = time.time()
@@ -77,7 +86,8 @@ async def smoke(plugin, database, snapshot=None, observed_at=None):
             assert (await call("queue_status"))["requests"] == []
     return {"passed": True, "plugin_version": version, "tool_count": len(tools), "dependency_round_trip": True,
             "snapshot_import": True, "native_snapshot_supplied": native_snapshot_supplied,
-            "all_test_reservations_released": True, "host_chat_adoption_verified": False}
+            "all_test_reservations_released": True, "release_handoff_mock_transport": True,
+            "native_cross_chat_delivery_verified": False, "host_chat_adoption_verified": False}
 
 
 if __name__ == "__main__":

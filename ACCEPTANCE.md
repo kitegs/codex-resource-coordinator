@@ -1,4 +1,56 @@
-# Current 0.3.0 acceptance snapshot — 2026-10-21
+# Current 0.4.0 acceptance snapshot — 2026-10-22
+
+Classification: **tested local integration prototype** with host-agent-dispatched
+release handoffs. Not a background autonomous chat wakeup service.
+
+## Current evidence
+
+- Windows Python 3.13.7: 78 pytest cases passed. The prior queue/dependency,
+  real multiprocess, stdio, read-only panel and migration tests still pass.
+  New tests cover durable notices on actual release, atomic concurrent claims,
+  FIFO/multi-resource eligibility, disabled/cross-project scope, process-release
+  refusal, crash recovery, late matching receipts, explicit known-failure retry,
+  uncertain-send retry refusal, token redaction and transaction rollback.
+- Four Node DOM-level tests passed, including recipient/project filtering,
+  uncertainty warnings and accepted-delivery versus verified-reading labels.
+  These are behavior tests, not rendered browser/layout acceptance.
+- The native CLI installed 0.4.0. Its actual cache passed real MCP stdio smoke:
+  21 tools, successful-only prerequisites, release → durable notice → claim →
+  simulated host receipt → acknowledgment → recipient reacquisition, with all
+  synthetic reservations released. No real chat was messaged by these tests.
+- A 0.4.0 wheel was built and installed into a new isolated target. The handoff
+  module and all three panel assets are present. UTF-8 skill validation passed.
+- No activity was detected in coordinator MCP services immediately before the
+  upgrade. Codex and UE were not restarted. The installer pruned old cache
+  versions; prepared 0.1/0.2/0.3 installation sources are retained for recovery.
+- Notification scope was prepared only for the three already registered project
+  participants. No real requests were fabricated, no notifications sent, and
+  peer observations were not changed into claims of active adoption.
+- The first new failure-injection test used `executescript` inside an explicit
+  transaction, which committed the test transaction prematurely. It was fixed
+  to use a single `execute`; the rollback safety assertion was preserved and
+  passed. This was a test-fixture failure, not a relaxed release condition.
+
+## Still pending / intentionally absent
+
+- Real host-native message delivery and consumption by another chat; mocked
+  receipts and CLI installation do not establish this. Existing chats must
+  load 0.4 and adopt its workflow at a stable point. This running chat does not
+  yet expose the new plugin MCP tools through its host tool list.
+- User visual/layout acceptance and actual UE build/editor handoff under dirty
+  asset/PIE gates. No combat, editor restart or process takeover was tested.
+- No daemon watches release events and independently sends/wakes chats. The
+  finishing, authorized host agent must dispatch the outbox; if all agents stop,
+  notifications remain pending. Official `codex queue` exists but is not wired
+  into this version. Accepted delivery does not mean read/started/acquired.
+- Large-queue measurements, power loss/disk-full behavior, Linux/other Python
+  versions and this commit's GitHub CI result remain separate validation work.
+- OS-enforced locks, multi-user authentication, comprehensive detached-process
+  tracking, forced continuation and cross-machine coordination remain out of scope.
+
+The following snapshots are historical, not the current capability list.
+
+# Historical 0.3.0 acceptance snapshot — 2026-10-21
 
 Classification: **tested local integration prototype**. Read-only panel is implemented;
 native Codex tool adoption and visual acceptance remain separate checks.

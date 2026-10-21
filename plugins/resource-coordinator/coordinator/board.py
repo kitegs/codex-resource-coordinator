@@ -186,8 +186,22 @@ class Board:
             if project_key:
                 owners = {item["chat_id"] for item in chats}
                 queue = [item for item in queue if item["owner"] in owners]
+            # Optional additive 0.4 tables: an older v2 database stays readable
+            # without migration by the query-only panel. Never expose send tokens.
+            notices = []
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='release_notices'").fetchone():
+                where, args = ("WHERE project_key=?", (project_key,)) if project_key else ("", ())
+                rows = db.execute(f"SELECT id,target_request,recipient,project_key,state,deadline,result_code,updated FROM release_notices {where} ORDER BY (state='delivered'),updated DESC,id LIMIT 201", args).fetchall()
+                for row in rows[:200]:
+                    item = dict(row)
+                    if item["state"] == "sending" and item["deadline"] <= self.store.clock():
+                        item["state"] = "uncertain"
+                    notices.append(item)
+                notices_truncated = len(rows) > 200
+            else:
+                notices_truncated = False
             cursor = db.execute("SELECT COALESCE(MAX(sequence),0) FROM coordination_changes").fetchone()[0]
-            return {"chats": chats, "queue": queue, "queue_truncated": queue_truncated, "ready_order": [item["id"] for item in queue if item["eligible_by_queue_rules"]], "latest_cursor": cursor, "runtime_clearance": "Queue eligibility is not runtime clearance. Check unmanaged work, freshness, permissions and dirty assets separately.", "data_source": "cooperative self-reports + explicitly imported native snapshots; not a background live monitor"}
+            return {"chats": chats, "queue": queue, "queue_truncated": queue_truncated, "release_notices": notices, "notices_truncated": notices_truncated, "ready_order": [item["id"] for item in queue if item["eligible_by_queue_rules"]], "latest_cursor": cursor, "runtime_clearance": "Queue eligibility is not runtime clearance. Check unmanaged work, freshness, permissions and dirty assets separately.", "data_source": "cooperative self-reports + explicitly imported native snapshots; not a background live monitor"}
 
     def changes(self, observer, after_cursor=None, limit=50):
         if not isinstance(limit, int) or not 1 <= limit <= 200:

@@ -7,6 +7,7 @@ import threading
 import pytest
 
 from coordinator.board import Board
+from coordinator.handoff import Handoffs
 from coordinator.dashboard import ASSETS, PanelServer, ReadOnlyStore, SnapshotReader
 from coordinator.store import CoordinationError, Store
 
@@ -54,6 +55,44 @@ def test_panel_snapshot_preserves_reservations_and_reads_updated_work(tmp_path):
     assert reader.snapshot()["chats"][0]["summary"] == "new milestone"
     assert store.status(request["id"]) == before
     assert lease["lease_token"] not in json.dumps(first)
+
+
+def test_panel_shows_delivery_uncertainty_without_mutating_or_exposing_tokens(tmp_path):
+    now = [100.0]
+    store = Store(tmp_path / "notices.sqlite3", clock=lambda: now[0])
+    board, handoffs = Board(store), Handoffs(store)
+    for chat in ("a", "b"):
+        board.register(chat, chat, "test")
+        handoffs.configure(chat, True, "synthetic explicit scope")
+    resources = [{"key":"test:output","mode":"exclusive"}]
+    first = store.request("a", "first", resources)
+    target = store.request("b", "next", resources)
+    lease = store.acquire(first["id"], "a")
+    store.finish(first["id"], "a", lease["lease_token"])
+    notice = handoffs.listing("a")["notices"][0]
+    claim = handoffs.claim(notice["id"], "a")
+    reader = SnapshotReader(store.path)
+    reader.store.clock = lambda: 250.0
+    snapshot = reader.snapshot()
+    shown = snapshot["release_notices"][0]
+    assert shown["recipient"] == "b" and shown["state"] == "uncertain"
+    assert target["id"] == shown["target_request"]
+    assert claim["claim_token"] not in json.dumps(snapshot) and "claim_hash" not in json.dumps(snapshot)
+    with store.connection() as db:
+        assert db.execute("SELECT state FROM release_notices").fetchone()[0] == "sending"
+    assert store.status(target["id"])["state"] == "waiting"
+
+
+def test_panel_reads_v03_database_without_creating_optional_notice_tables(tmp_path):
+    store = Store(tmp_path / "old-v2.sqlite3")
+    Board(store)
+    with store.connection() as db:
+        db.execute("DROP TABLE release_notices")
+        db.execute("DROP TABLE handoff_routes")
+    snapshot = SnapshotReader(store.path).snapshot()
+    assert snapshot["available"] and snapshot["release_notices"] == []
+    with store.connection() as db:
+        assert db.execute("SELECT name FROM sqlite_master WHERE name='release_notices'").fetchone() is None
 
 
 @pytest.fixture

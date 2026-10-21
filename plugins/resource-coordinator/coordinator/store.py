@@ -100,6 +100,21 @@ class Store:
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL,
                     subject TEXT NOT NULL, kind TEXT NOT NULL, attention INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS handoff_routes (
+                    chat_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL,
+                    authorization_reference TEXT NOT NULL, updated REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS release_notices (
+                    id TEXT PRIMARY KEY, target_request TEXT NOT NULL,
+                    released_request TEXT NOT NULL, source_owner TEXT NOT NULL,
+                    recipient TEXT NOT NULL, project_key TEXT NOT NULL,
+                    state TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
+                    dispatcher TEXT, claim_hash TEXT, deadline REAL,
+                    receipt_thread_id TEXT, result_code TEXT,
+                    UNIQUE(released_request, target_request)
+                );
+                CREATE INDEX IF NOT EXISTS notices_target_created ON release_notices(target_request,created);
+                CREATE INDEX IF NOT EXISTS notices_project_state ON release_notices(project_key,state,created);
                 PRAGMA user_version=2;
             """)
 
@@ -233,13 +248,9 @@ class Store:
             self._owned(row, owner)
             if row["state"] != "waiting":
                 raise CoordinationError("Only a waiting request can acquire; do not mint replacement tokens")
-            resources = json.loads(row["resources"])
-            dependencies = self._dependency_blockers(db, request_id)
+            dependencies, blockers = self._waiting_blockers(db, row)
             if dependencies:
                 return {"id": request_id, "state": "waiting", "blocked_by": [], "dependency_blockers": dependencies}
-            others = db.execute("SELECT * FROM requests WHERE id<>? AND (state IN ('leased','running','suspect') OR (state='waiting' AND sequence<?)) ORDER BY sequence", (request_id, row["sequence"]))
-            blockers = [other["id"] for other in others if
-                (other["state"] != "waiting" or not self._dependency_blockers(db, other["id"])) and conflicts(resources, json.loads(other["resources"]))]
             if blockers:
                 return {"id": request_id, "state": "waiting", "blocked_by": blockers}
             token = secrets.token_urlsafe(32)
@@ -247,6 +258,14 @@ class Store:
                        (self.clock(), self.clock()+lease_seconds, hashlib.sha256(token.encode()).hexdigest(), request_id))
             self._event(db, request_id, "acquired")
             return {**self._public(self._row(db, request_id), db), "lease_token": token}
+
+    def _waiting_blockers(self, db, row):
+        dependencies = self._dependency_blockers(db, row["id"])
+        resources = json.loads(row["resources"])
+        others = db.execute("SELECT * FROM requests WHERE id<>? AND (state IN ('leased','running','suspect') OR (state='waiting' AND sequence<?)) ORDER BY sequence", (row["id"], row["sequence"]))
+        blockers = [other["id"] for other in others if
+            (other["state"] != "waiting" or not self._dependency_blockers(db, other["id"])) and conflicts(resources, json.loads(other["resources"]))]
+        return dependencies, blockers
 
     def _active(self, db, request_id, owner, token):
         self._expire(db)
@@ -306,7 +325,9 @@ class Store:
             self._confirm_processes_gone(row)
             db.execute("UPDATE requests SET state=?,result=?,token_hash=NULL,updated=? WHERE id=?", (outcome, outcome, self.clock(), request_id))
             self._event(db, request_id, outcome)
-            return self._public(self._row(db, request_id), db)
+            from .handoff import Handoffs
+            handoff = Handoffs(self).enqueue_after_release(db, row)
+            return {**self._public(self._row(db, request_id), db), "release_handoff": handoff}
 
     def cancel(self, request_id, owner):
         with self.connection(write=True) as db:
@@ -331,4 +352,6 @@ class Store:
             self._confirm_processes_gone(row)
             db.execute("UPDATE requests SET state='failed',result=?,token_hash=NULL,updated=? WHERE id=?", (note, self.clock(), request_id))
             self._event(db, request_id, "explicitly_reconciled_no_process_termination")
-            return self._public(self._row(db, request_id), db)
+            from .handoff import Handoffs
+            handoff = Handoffs(self).enqueue_after_release(db, row)
+            return {**self._public(self._row(db, request_id), db), "release_handoff": handoff}

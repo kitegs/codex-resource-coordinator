@@ -27,9 +27,12 @@ def test_real_mcp_stdio_request_grant_wait_and_release(tmp_path):
                 initialized = await session.initialize()
                 assert initialized.serverInfo.name == "resource-coordinator"
                 tools = {tool.name for tool in (await session.list_tools()).tools}
-                assert len(tools) == 16
+                assert len(tools) == 21
                 assert {"coordination_board", "import_codex_status_snapshot", "report_development_status", "set_request_dependencies"}.issubset(tools)
                 assert not tools.intersection({"run", "execute", "shell", "kill_process"})
+                for chat in ("chat-a", "chat-b"):
+                    result_data(await session.call_tool("register_coordination_chat", {"chat_id":chat,"label":chat,"project_key":"protocol-test"}))
+                    result_data(await session.call_tool("configure_release_notifications", {"chat_id":chat,"enabled":True,"authorization_reference":"synthetic explicit human scope"}))
                 resources = [{"key": "asset:generic-test", "mode": "exclusive"}]
                 a = result_data(await session.call_tool("request_resources", {"owner": "chat-a", "purpose": "smoke test", "resources": resources}))
                 b = result_data(await session.call_tool("request_resources", {"owner": "chat-b", "purpose": "second smoke test", "resources": resources}))
@@ -44,7 +47,17 @@ def test_real_mcp_stdio_request_grant_wait_and_release(tmp_path):
                 assert result_data(await session.call_tool("renew_lease", args))["state"] == "running"
                 public = result_data(await session.call_tool("queue_status", {}))
                 assert acquired["lease_token"] not in json.dumps(public)
-                assert result_data(await session.call_tool("complete_operation", args))["state"] == "completed"
+                completed = result_data(await session.call_tool("complete_operation", args))
+                assert completed["state"] == "completed" and completed["release_handoff"]["pending_count"] == 1
+                outbox = result_data(await session.call_tool("release_notifications", {"actor":"chat-a"}))
+                notice = outbox["notices"][0]
+                claim = result_data(await session.call_tool("claim_release_notification", {"notice_id":notice["id"],"actor":"chat-a"}))
+                assert claim["host_arguments"]["threadId"] == "chat-b" and claim["message_sent"] is False
+                # Simulated host transport only. No real Codex chat is messaged.
+                receipt = {"threadId":claim["host_arguments"]["threadId"]}
+                ack = result_data(await session.call_tool("acknowledge_release_notification", {"notice_id":notice["id"],"actor":"chat-a","claim_token":claim["claim_token"],"outcome":"delivered","receipt_thread_id":receipt["threadId"]}))
+                assert ack["state"] == "delivered" and ack["reservation_acquired"] is False
+                assert result_data(await session.call_tool("release_notifications", {"actor":"chat-a"}))["notices"] == []
                 assert result_data(await session.call_tool("acquire_resources", {"request_id": b["id"], "owner": "chat-b"}))["state"] == "leased"
                 registered = result_data(await session.call_tool("register_coordination_chat", {"chat_id": "chat-a", "label": "A", "project_key": "protocol-test"}))
                 assert registered["work_revision"] == 0

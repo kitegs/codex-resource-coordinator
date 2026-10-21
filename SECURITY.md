@@ -15,6 +15,17 @@ isolate mutually untrusted users with access to its files.
 - Foreground children are observed, not comprehensively sandboxed. Detached or
   very short-lived children can escape observation. Do not use daemonizing commands.
 - The SessionStart hook is a reminder only. No global blocking hook is installed.
+- Release notices are an outbox, not a background messaging service. Only an
+  enabled, human-authorized participating host agent sends using its native tool.
+  Local opt-in/reference strings are not authentication or independent consent.
+- Atomic claims reduce duplicate concurrent sends, not exactly-once delivery.
+  Timeout/crash after claim is uncertain and must not trigger automatic resend,
+  cross-channel fallback, or forced continuation. Definitive non-delivery can be
+  explicitly requeued after verification; unknown sends cannot. A matching host
+  receipt means accepted delivery, never proof of reading or resource ownership.
+- Notice claim tokens are stored only as hashes and redacted from board/panel
+  output. Message templates use generated request/notice identifiers, not peer
+  prompts, purposes, source code or executable instructions from shared reports.
 - Normal execution-tool approvals and sandbox restrictions remain applicable.
 - The optional read-only panel binds only to IPv4 loopback. Its state API requires
   an ephemeral token supplied in a request header, validates Host/Origin, disables

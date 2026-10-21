@@ -42,3 +42,13 @@ test("missing database or credential shows an honest empty/error state",async()=
   assert.equal(h.nodes.get("metric-chats").textContent,"—");assert.match(h.nodes.get("notice").textContent,/不会创建数据库/);
   const noKey=await harness(fixture(),"");assert.match(noKey.nodes.get("notice").textContent,/缺少本机访问凭据/);
 });
+test("handoff recipient, uncertain result and accepted-not-read details stay distinct",async()=>{
+  const state=fixture();state.release_notices=[{id:"synthetic-notice",recipient:"b",project_key:"b",target_request:"synthetic-request",state:"uncertain",result_code:"transport_uncertain",updated:Date.now()/1000}];
+  const h=await harness(state),get=id=>h.nodes.get(id);
+  assert.match(get("handoffs").textContent,/提醒 b/);assert.match(get("handoffs").textContent,/结果不明/);
+  get("handoffs").children[0].onclick();assert.match(get("detail").textContent,/不得自动重发/);
+  get("project").value="a";get("project").listeners.change();assert.doesNotMatch(get("handoffs").textContent,/提醒 b/);
+  state.release_notices[0].state="delivered";state.release_notices[0].result_code="";get("project").value="";h.set(state);await h.context.refresh();
+  assert.match(get("handoffs").textContent,/未确认已读/);
+  get("attention-only").checked=true;get("attention-only").listeners.change();assert.doesNotMatch(get("handoffs").textContent,/提醒 b/);
+});
