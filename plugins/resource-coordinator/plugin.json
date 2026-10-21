@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "resource-coordinator",
+  "version": "0.1.0",
+  "description": "Local cooperative queues for parallel coding chats, with conservative leases and a foreground launcher.",
+  "extensions": {
+    "com.openai": {
+      "skills": "./skills/",
+      "mcpServers": "./.mcp.json",
+      "hooks": "./hooks/hooks.json",
+      "requires_local_executor": true
+    }
+  }
+}

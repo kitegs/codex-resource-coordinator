@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-resource-coordinator"
+version = "0.1.0"
+description = "Local cooperative resource queues for parallel Codex chats"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.26,<2", "psutil>=7,<8"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+codex-coordinate = "coordinator.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["plugins/resource-coordinator"]
+include = ["coordinator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["plugins/resource-coordinator"]

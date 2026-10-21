@@ -1,0 +1,9 @@
+{
+  "name": "resource-coordinator",
+  "version": "0.1.0",
+  "description": "Local cooperative queues for shared builds, editors, assets and performance tests. No automatic process termination.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "requires_local_executor": true
+}

@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python \"${PLUGIN_ROOT}/scripts/session_start.py\"",
+        "timeout": 5,
+        "statusMessage": "Loading cooperative resource-queue guidance"
+      }]
+    }]
+  }
+}
