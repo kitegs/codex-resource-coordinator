@@ -20,6 +20,17 @@ def main(argv=None):
     p.add_argument("--purpose", required=True)
     p.add_argument("--resources", required=True, help='JSON list: [{"key":"build:project-a","mode":"exclusive"}]')
     p.add_argument("--idempotency-key")
+    p.add_argument("--depends-on", default="[]", help="JSON list of prerequisite request IDs")
+    p = commands.add_parser("board")
+    p.add_argument("--project-key")
+    p.add_argument("--stale-after", type=int, default=180)
+    p = commands.add_parser("panel", help="Serve a read-only loopback panel; does not monitor native chats")
+    p.add_argument("--port", type=int, default=0)
+    p.add_argument("--stale-after", type=int, default=180)
+    p.add_argument("--idle-timeout", type=int, default=1800)
+    p = commands.add_parser("ingest-status")
+    p.add_argument("--snapshot", type=Path, required=True)
+    p.add_argument("--observed-at", type=float, required=True)
     p = commands.add_parser("plan-ue")
     p.add_argument("--project", required=True)
     p.add_argument("--operation", required=True, choices=["compile-only", "cold-build", "integrate", "editor-test", "performance"])
@@ -38,12 +49,20 @@ def main(argv=None):
     try:
         if args.action == "plan-ue":
             result = ue_plan(args.project, args.operation)
+        elif args.action == "panel":
+            from .dashboard import serve
+            from .store import default_db
+            return serve(args.db or default_db(), args.port, args.stale_after, args.idle_timeout)
         else:
             store = Store(args.db)
-            if args.action == "status":
+            if args.action in ("board", "ingest-status"):
+                from .board import Board
+                board = Board(store)
+                result = board.view(args.project_key, args.stale_after) if args.action == "board" else board.ingest(json.loads(args.snapshot.read_text(encoding="utf-8")), args.observed_at)
+            elif args.action == "status":
                 result = store.status(args.request, include_finished=args.all)
             elif args.action == "request":
-                result = store.request(args.owner, args.purpose, json.loads(args.resources), args.idempotency_key)
+                result = store.request(args.owner, args.purpose, json.loads(args.resources), args.idempotency_key, json.loads(args.depends_on))
             elif args.action == "cancel":
                 result = store.cancel(args.request, args.owner)
             elif args.action == "reconcile":

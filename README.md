@@ -2,7 +2,11 @@
 
 给并行本地对话使用的**协作资源队列**：源码可在 Git 工作树里并行修改，共用编译产物、编辑器、资产和性能测试窗口则先申请占用。独立本机 SQLite 保存队列，MCP 提供工具，命令启动器拿到许可才运行。不是 OpenAI 官方产品。
 
-**当前为 0.1.0 验证原型，不是安全隔离层。** 未经接入的构建、应用或手工操作不受它控制。空队列不代表没有 UE 运行。排到队不代表获得关闭编辑器、丢弃资产或停止他人工作的授权。
+**当前为 0.3.0 验证原型，不是安全隔离层。** 未经接入的构建、应用或手工操作不受它控制。空队列不代表没有 UE 运行。排到队不代表获得关闭编辑器、丢弃资产或停止他人工作的授权。
+
+0.2 新增共享开发状态板、状态新鲜度、成功依赖排序和低噪声变更游标。详见[协作信息与缺口](COORDINATION_DESIGN.md)。它不是完整的 Agent Teams 总控，不自动创建／接管对话或发送消息。
+
+0.3 增加本机只读面板：项目筛选、对话状态、资源队列、版本／证据详情、过期与断线提示。可在普通浏览器或 Codex 浏览器侧栏查看，不是 Codex 原生插件侧栏扩展。
 
 ## 架构
 
@@ -34,7 +38,7 @@ Codex 对话 C ─┘                    │ 原子申请全部资源
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -e '.[test]'
 ./.venv/Scripts/python.exe -m pytest -q
-./.venv/Scripts/python.exe scripts/prepare_install.py --python .venv/Scripts/python.exe --target .local/marketplace-v0.1.0
+./.venv/Scripts/python.exe scripts/prepare_install.py --python .venv/Scripts/python.exe --target .local/marketplace-v0.3.0
 ```
 
 Linux 对应解释器为 `.venv/bin/python`。准备脚本拒绝覆盖已有目标，生成独立安装副本，固定其 MCP 和提醒 Hook 使用的解释器；**不修改 Codex 设置、不启动服务、不重启客户端**。源码清单中的默认 `python` 仅适用于已安装依赖的同一解释器，不要误用另一个 Python。
@@ -51,6 +55,18 @@ MCP 也可直接连接准备副本的 `scripts/server.py`，解释器仍使用�
 
 ## 共享状态
 
+### 打开本机面板
+
+```powershell
+./.venv/Scripts/python.exe -B plugins/resource-coordinator/scripts/coordinate.py panel --port 0
+# 使用输出的完整 local_url（含片段凭据），不是只复制主机地址。
+# 指定另一状态库时，把 --db <绝对路径> 放在 panel 之前。
+```
+
+面板仅监听 `127.0.0.1`，没有修改／取消／终止操作；不创建或升级状态库。API 需要随机访问凭据，拒绝其他来源，不公开本机文件。每 5 秒读取状态库，页面隐藏时暂停刷新；**不自动调用宿主工具监控其他对话**。默认无有效访问 30 分钟后退出，也可在自己的面板终端按 Ctrl+C 正常停止。
+
+未初始化、过期、连接失败和“仅观察未接入”会明确显示，不使用虚构进度。访问凭据只用于本机页面读取，不应复制到报告或 GitHub。升级前检查旧 MCP 是否活动；CLI 安装可能清理旧版本缓存，保留旧安装源用于回滚，不把缓存当备份。
+
 默认数据库在：
 
 - Windows：`%LOCALAPPDATA%/CodexResourceCoordinator/state.sqlite3`
@@ -62,7 +78,24 @@ MCP 也可直接连接准备副本的 `scripts/server.py`，解释器仍使用�
 
 在 Codex 中用 `$resource-coordination`。建议先让两个测试对话在测试资源上申请，不要立即接管已运行的 UE。旧任务必须由其负责人明确交接。
 
-MCP 工具有：`queue_status`、`request_resources`、`acquire_resources`、`begin_operation`、`renew_lease`、`complete_operation`、`cancel_waiting`、`reconcile_expired`、`plan_ue_resources`。服务器不提供任意命令执行、杀进程、Git 集成或消息发送能力。
+MCP 工具有 16 个：
+
+- 原子占用：`queue_status`、`request_resources`、`set_request_dependencies`、`acquire_resources`、`begin_operation`、`renew_lease`、`complete_operation`、`cancel_waiting`、`reconcile_expired`、`plan_ue_resources`。
+- 共享状态：`register_coordination_chat`、`report_development_status`、`import_codex_status_snapshot`、`coordination_board`、`coordination_changes`、`acknowledge_coordination_changes`。
+
+服务器不提供任意命令执行、杀进程、Git 集成或消息发送能力。
+
+### 查看其他对话与安排下一步
+
+1. 注册明确参与同一项目的对话。`report_development_status` 只上报本对话的工作和证据；不能替其他人声明验收通过。
+2. 需要新鲜状态时，调用宿主已有的 `wait_threads`/`read_thread`，将紧凑结果及实际采集时间传给 `import_codex_status_snapshot`。本地 MCP 本身不会自动调用宿主工具，也不读 Codex 内部数据库。
+3. `coordination_board` 显示自报开发状态、宿主／本轮状态、来源与更新时间、责任范围／版本／证据指针、阻塞原因和队列候选顺序。证据是声明，插件不自动核实日志或执行其引用。
+4. 请求可以附 `depends_on` 成功依赖。只认前置请求 `completed`，不把失败、取消或对话本轮结束当成功。拒绝依赖环；没满足依赖的请求不挡住可执行的前置任务。
+5. 用变更游标只看相关项目的新变化，跨项目但实际冲突的资源释放仍可见。处理后确认 `next_cursor`，恢复对话不重复提醒。无相关变化保持安静，不反复催问；提醒和发消息是两回事。
+
+CLI 的 `board` 也可查看状态；`ingest-status --snapshot <紧凑JSON文件> --observed-at <采集时Unix秒>` 导入已授权的状态快照。运行数据只留本机，不上传本仓库。
+
+升级需在各参与对话到稳定点后，结束旧 MCP 实例并统一重载 0.2+，再依赖新排序规则。数据库为加表升级，保留旧请求。旧插件不能被默认为已更新，不因安装自动接管已有进程。
 
 命令行例子（在 PowerShell 中）：
 
@@ -96,7 +129,9 @@ $coord = 'plugins/resource-coordinator/scripts/coordinate.py'
 
 自测覆盖真实多进程竞争、FIFO、共享/独占、全部资源原子申请、取消、幂等、过期保留、旧令牌、存活/未知进程拒绝释放、命令未启动证明、前台成功/失败、MCP stdio 和安装副本；另有非 UE 的数据库迁移场景。具体结果看本次报告，不以测试数量替代实际 Codex/UE 接入验收。
 
-尚不具备：自动接管旧会话、操作系统级强制互斥、完备命令解析、任意后台进程追踪、跨机器锁服务、自动抢占、UI 面板、GPU 预算、多人安全认证。全局 Hook 不是可靠的 fail-closed 边界；本版不假装提供。
+安装后可用 `scripts/smoke_install.py --plugin <安装副本目录> --db <全新的隔离数据库绝对路径>` 检查真实 MCP 通信、16 个工具、成功依赖、状态上报及变更确认。它拒绝覆盖已有数据库，不启动 UE、不证明当前 Codex 对话已加载插件。[验收记录](ACCEPTANCE.md) 区分自动测试、安装副本与宿主实际接入。
+
+尚不具备：自动接管旧会话、后台原生事件订阅、操作系统级强制互斥、完备命令解析、任意后台进程追踪、跨机器锁服务、自动抢占、GPU 预算、多人安全认证。状态桥接和里程碑上报仍需参与者执行。全局 Hook 不是可靠的 fail-closed 边界；本版不假装提供。
 
 许可：MIT。后续公开前再次检查没有带入项目素材、日志、令牌和私人路径。
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-resource-coordinator"
-version = "0.1.0"
+version = "0.3.0"
 description = "Local cooperative resource queues for parallel Codex chats"
 readme = "README.md"
 license = "MIT"
@@ -21,6 +21,9 @@ codex-coordinate = "coordinator.cli:main"
 [tool.setuptools.packages.find]
 where = ["plugins/resource-coordinator"]
 include = ["coordinator*"]
+
+[tool.setuptools.package-data]
+coordinator = ["panel/*.html", "panel/*.css", "panel/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

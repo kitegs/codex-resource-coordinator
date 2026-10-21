@@ -19,7 +19,7 @@ def prepare(interpreter: Path, target: Path) -> dict:
         raise ValueError("Destination must be a new named directory; existing paths are never overwritten")
     subprocess.run([str(interpreter), "-B", "-c", "import mcp, psutil; from mcp.server.fastmcp import FastMCP"], check=True, capture_output=True)
     plugin = target / "plugins/resource-coordinator"
-    shutil.copytree(root / "plugins/resource-coordinator", plugin, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".env*", "*.sqlite*"))
+    shutil.copytree(root / "plugins/resource-coordinator", plugin, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".env*", "*.sqlite*", "*.egg-info"))
     catalog = target / ".agents/plugins"
     catalog.mkdir(parents=True)
     shutil.copyfile(root / ".agents/plugins/marketplace.json", catalog / "marketplace.json")

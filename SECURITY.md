@@ -16,6 +16,12 @@ isolate mutually untrusted users with access to its files.
   very short-lived children can escape observation. Do not use daemonizing commands.
 - The SessionStart hook is a reminder only. No global blocking hook is installed.
 - Normal execution-tool approvals and sandbox restrictions remain applicable.
+- The optional read-only panel binds only to IPv4 loopback. Its state API requires
+  an ephemeral token supplied in a request header, validates Host/Origin, disables
+  caching, and serves only three fixed assets. There are no state mutation routes.
+  Do not publish its full URL or proxy it to the Internet. It is not multi-user auth.
+- Panel refresh reads the coordination database, not Codex transcripts. It does not
+  create/migrate databases or assume that imported peer status is fresh or accepted.
 - Do not publish security issues containing real credentials or private logs.
 
 For a proposed report, provide a minimal synthetic reproduction without private

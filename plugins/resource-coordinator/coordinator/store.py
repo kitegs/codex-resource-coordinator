@@ -75,7 +75,7 @@ class Store:
         with self.connection() as db:
             db.execute("PRAGMA journal_mode=WAL")
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise CoordinationError("Unsupported database version; do not overwrite it")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS requests (
@@ -92,7 +92,15 @@ class Store:
                     request_id TEXT NOT NULL, at REAL NOT NULL, event TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS requests_state_sequence ON requests(state, sequence);
-                PRAGMA user_version=1;
+                CREATE TABLE IF NOT EXISTS request_dependencies (
+                    request_id TEXT NOT NULL, prerequisite TEXT NOT NULL,
+                    PRIMARY KEY(request_id, prerequisite)
+                );
+                CREATE TABLE IF NOT EXISTS coordination_changes (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL,
+                    subject TEXT NOT NULL, kind TEXT NOT NULL, attention INTEGER NOT NULL
+                );
+                PRAGMA user_version=2;
             """)
 
     @contextmanager
@@ -115,6 +123,8 @@ class Store:
 
     def _event(self, db, request_id, event):
         db.execute("INSERT INTO events(request_id,at,event) VALUES(?,?,?)", (request_id, self.clock(), event))
+        if event in ("completed", "failed", "cancelled_before_start", "explicitly_reconciled_no_process_termination", "lease_expired_manual_reconciliation_required"):
+            db.execute("INSERT INTO coordination_changes(at,subject,kind,attention) VALUES(?,?,?,?)", (self.clock(), request_id, "resource_"+event, event != "completed"))
 
     def _expire(self, db):
         rows = db.execute("SELECT id FROM requests WHERE state IN ('leased','running') AND deadline <= ?", (self.clock(),)).fetchall()
@@ -136,41 +146,78 @@ class Store:
             if not row["token_hash"] or not hmac.compare_digest(digest, row["token_hash"]):
                 raise CoordinationError("Invalid or stale lease token")
 
-    def _public(self, row):
+    def _public(self, row, db=None):
         item = dict(row)
         item.pop("token_hash")
         item["resources"] = json.loads(item["resources"])
         item["processes"] = json.loads(item["processes"])
         if item["state"] in ("leased", "running") and item["deadline"] <= self.clock():
             item["state"] = "suspect"
+        if db is not None:
+            item["depends_on"] = [r[0] for r in db.execute("SELECT prerequisite FROM request_dependencies WHERE request_id=? ORDER BY prerequisite", (item["id"],))]
+            item["dependency_blockers"] = self._dependency_blockers(db, item["id"])
         return item
+
+    def _dependency_blockers(self, db, request_id):
+        return [{"id": r["id"], "state": r["state"], "owner": r["owner"]} for r in db.execute(
+            "SELECT r.id,r.state,r.owner FROM request_dependencies d JOIN requests r ON r.id=d.prerequisite WHERE d.request_id=? AND r.state<>'completed' ORDER BY r.sequence", (request_id,))]
+
+    def _set_dependencies(self, db, request_id, prerequisites):
+        if not isinstance(prerequisites, list) or len(prerequisites) > 32 or any(not isinstance(p, str) for p in prerequisites):
+            raise CoordinationError("Dependencies must be a list of at most 32 request IDs")
+        if len(set(prerequisites)) != len(prerequisites):
+            raise CoordinationError("Duplicate dependency")
+        for prerequisite in prerequisites:
+            self._row(db, prerequisite)
+            if prerequisite == request_id:
+                raise CoordinationError("Dependency cycle")
+            found = db.execute("""WITH RECURSIVE ancestors(id) AS (
+                SELECT prerequisite FROM request_dependencies WHERE request_id=?
+                UNION SELECT d.prerequisite FROM request_dependencies d JOIN ancestors a ON d.request_id=a.id
+            ) SELECT 1 FROM ancestors WHERE id=? LIMIT 1""", (prerequisite, request_id)).fetchone()
+            if found:
+                raise CoordinationError("Dependency cycle")
+        db.execute("DELETE FROM request_dependencies WHERE request_id=?", (request_id,))
+        db.executemany("INSERT INTO request_dependencies(request_id,prerequisite) VALUES(?,?)", [(request_id, p) for p in prerequisites])
+
+    def set_dependencies(self, request_id, owner, prerequisites):
+        with self.connection(write=True) as db:
+            row = self._row(db, request_id)
+            self._owned(row, owner)
+            if row["state"] != "waiting":
+                raise CoordinationError("Only waiting requests can change dependencies")
+            self._set_dependencies(db, request_id, prerequisites)
+            self._event(db, request_id, "dependencies_updated")
+            return self._public(self._row(db, request_id), db)
 
     def status(self, request_id=None, *, include_finished=False, limit=100):
         if not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise CoordinationError("Limit must be 1..1000")
         with self.connection() as db:
             if request_id:
-                return self._public(self._row(db, request_id))
+                return self._public(self._row(db, request_id), db)
             clause = "" if include_finished else "WHERE state IN ('waiting','leased','running','suspect')"
-            return [self._public(row) for row in db.execute(f"SELECT * FROM requests {clause} ORDER BY sequence LIMIT ?", (limit,))]
+            return [self._public(row, db) for row in db.execute(f"SELECT * FROM requests {clause} ORDER BY sequence LIMIT ?", (limit,))]
 
-    def request(self, owner, purpose, resources, idempotency_key=None):
+    def request(self, owner, purpose, resources, idempotency_key=None, depends_on=None):
         owner, purpose = _text(owner, "owner", 200), _text(purpose, "purpose", 500)
         resources = normalize_resources(resources)
         if idempotency_key is not None:
             _text(idempotency_key, "idempotency key", 200)
+        prerequisites = depends_on if depends_on is not None else []
         with self.connection(write=True) as db:
             if idempotency_key is not None:
                 old = db.execute("SELECT * FROM requests WHERE owner=? AND idempotency=?", (owner, idempotency_key)).fetchone()
                 if old:
-                    if old["purpose"] != purpose or json.loads(old["resources"]) != resources:
+                    if old["purpose"] != purpose or json.loads(old["resources"]) != resources or sorted(prerequisites) != self._public(old, db)["depends_on"]:
                         raise CoordinationError("Idempotency key reused with different request data")
-                    return self._public(old)
+                    return self._public(old, db)
             request_id, now = str(uuid.uuid4()), self.clock()
             db.execute("INSERT INTO requests(id,owner,purpose,resources,state,created,updated,idempotency) VALUES(?,?,?,?,?,?,?,?)",
                        (request_id, owner, purpose, json.dumps(resources), "waiting", now, now, idempotency_key))
             self._event(db, request_id, "requested")
-            return self._public(self._row(db, request_id))
+            self._set_dependencies(db, request_id, prerequisites)
+            return self._public(self._row(db, request_id), db)
 
     @staticmethod
     def _ttl(seconds):
@@ -187,15 +234,19 @@ class Store:
             if row["state"] != "waiting":
                 raise CoordinationError("Only a waiting request can acquire; do not mint replacement tokens")
             resources = json.loads(row["resources"])
+            dependencies = self._dependency_blockers(db, request_id)
+            if dependencies:
+                return {"id": request_id, "state": "waiting", "blocked_by": [], "dependency_blockers": dependencies}
             others = db.execute("SELECT * FROM requests WHERE id<>? AND (state IN ('leased','running','suspect') OR (state='waiting' AND sequence<?)) ORDER BY sequence", (request_id, row["sequence"]))
-            blockers = [other["id"] for other in others if conflicts(resources, json.loads(other["resources"]))]
+            blockers = [other["id"] for other in others if
+                (other["state"] != "waiting" or not self._dependency_blockers(db, other["id"])) and conflicts(resources, json.loads(other["resources"]))]
             if blockers:
                 return {"id": request_id, "state": "waiting", "blocked_by": blockers}
             token = secrets.token_urlsafe(32)
             db.execute("UPDATE requests SET state='leased',updated=?,deadline=?,token_hash=? WHERE id=?",
                        (self.clock(), self.clock()+lease_seconds, hashlib.sha256(token.encode()).hexdigest(), request_id))
             self._event(db, request_id, "acquired")
-            return {**self._public(self._row(db, request_id)), "lease_token": token}
+            return {**self._public(self._row(db, request_id), db), "lease_token": token}
 
     def _active(self, db, request_id, owner, token):
         self._expire(db)
@@ -212,7 +263,7 @@ class Store:
                 raise CoordinationError("Request already started")
             db.execute("UPDATE requests SET state='running',updated=? WHERE id=?", (self.clock(), request_id))
             self._event(db, request_id, "started")
-            return self._public(self._row(db, request_id))
+            return self._public(self._row(db, request_id), db)
 
     def bind_processes(self, request_id, owner, token, processes):
         if not isinstance(processes, list) or not 1 <= len(processes) <= 128:
@@ -240,7 +291,7 @@ class Store:
         with self.connection(write=True) as db:
             self._active(db, request_id, owner, token)
             db.execute("UPDATE requests SET deadline=?,updated=? WHERE id=?", (self.clock()+lease_seconds, self.clock(), request_id))
-            return self._public(self._row(db, request_id))
+            return self._public(self._row(db, request_id), db)
 
     def _confirm_processes_gone(self, row):
         for item in json.loads(row["processes"]):
@@ -255,7 +306,7 @@ class Store:
             self._confirm_processes_gone(row)
             db.execute("UPDATE requests SET state=?,result=?,token_hash=NULL,updated=? WHERE id=?", (outcome, outcome, self.clock(), request_id))
             self._event(db, request_id, outcome)
-            return self._public(self._row(db, request_id))
+            return self._public(self._row(db, request_id), db)
 
     def cancel(self, request_id, owner):
         with self.connection(write=True) as db:
@@ -265,7 +316,7 @@ class Store:
                 raise CoordinationError("Cancel only removes waiting requests; it never terminates work")
             db.execute("UPDATE requests SET state='cancelled',updated=? WHERE id=?", (self.clock(), request_id))
             self._event(db, request_id, "cancelled_before_start")
-            return self._public(self._row(db, request_id))
+            return self._public(self._row(db, request_id), db)
 
     def reconcile(self, request_id, owner, confirmed_stopped=False, note=""):
         if confirmed_stopped is not True:
@@ -280,4 +331,4 @@ class Store:
             self._confirm_processes_gone(row)
             db.execute("UPDATE requests SET state='failed',result=?,token_hash=NULL,updated=? WHERE id=?", (note, self.clock(), request_id))
             self._event(db, request_id, "explicitly_reconciled_no_process_termination")
-            return self._public(self._row(db, request_id))
+            return self._public(self._row(db, request_id), db)

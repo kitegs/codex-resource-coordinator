@@ -16,3 +16,4 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e ".[test]"
       - run: python -m pytest -q
+      - run: node --test tests/panel_dom_test.cjs

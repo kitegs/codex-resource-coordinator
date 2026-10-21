@@ -1,4 +1,56 @@
-# 0.1.0 acceptance snapshot — 2026-10-21
+# Current 0.3.0 acceptance snapshot — 2026-10-21
+
+Classification: **tested local integration prototype**. Read-only panel is implemented;
+native Codex tool adoption and visual acceptance remain separate checks.
+
+## Current evidence
+
+- Windows Python 3.13.7: 52 pytest cases passed, including the original queue,
+  real multiprocess contention and stdio scenarios, v1 database preservation,
+  successful-only dependencies, cycle rejection, stale native snapshots,
+  self-report revisions, observer cursors and cross-project resource blockers.
+- Three Node DOM-level tests passed for peer text/selection/project filters,
+  disconnect/reconnect and missing-database/credential states. These are not
+  browser screenshot or layout tests.
+- Real loopback HTTP tests verified API authentication, Host/Origin rejection,
+  no write routes, no arbitrary file serving, fixed assets and restrictive CSP.
+  The panel uses a query-only SQLite connection; missing/old databases are not
+  created or migrated by the panel. Reading never releases reservations.
+- Actual installed 0.3.0 cache passed a separate stdio smoke test: 16 tools,
+  dependent request waiting/unblocking, self-report/snapshot import, cursor
+  acknowledgment and all synthetic reservations released.
+- The native Codex CLI reports 0.3.0 installed. Existing chats have NOT been proven
+  reloaded. The CLI removed older version caches during upgrade; original 0.1
+  installation source was retained and its 21 non-bytecode files matched the
+  pre-upgrade cache SHA-256 values. The 0.2 source copy is retained too.
+- Prepared plugin copies include panel assets and exclude packaging metadata.
+  A wheel was built and installed into a separate target: all three panel assets
+  were present in that independent installation as well.
+- UTF-8 skill validation passed. Initial 0.2 frontmatter had an unquoted colon;
+  this was corrected before installation. An offline wheel attempt lacked the
+  build backend; normal isolation installed the already-declared backend and
+  succeeded. Neither failure was hidden by relaxing assertions.
+- The live local page and health endpoint returned HTTP 200. An open request for
+  the calling chat's browser panel returned `queued`, not a visual inspection.
+  Peer native states were imported as observations; no peer feature was marked
+  complete and no peer process was adopted or terminated.
+
+## Still pending
+
+- User visual/layout acceptance in a real browser; no screenshot-based acceptance
+  is claimed. The local page is not a native Codex plugin-sidebar extension.
+- Fresh/resumed chats loading the skill and invoking host-provided MCP tools;
+  genuine multi-chat UE build/editor handoff with dirty-asset and PIE gates.
+- Background native event subscription, automatic chat messaging and task/team
+  creation. Panel polling reads SQLite only, not the live Codex host.
+- Large-queue/history load measurements, power loss/disk-full behavior, Linux and
+  other Python versions, and GitHub CI results for the current commit.
+- OS-enforced locking, comprehensive detached-child tracking, multi-user security
+  and cross-machine coordination are intentionally outside this prototype.
+
+The following 0.1 snapshot is historical, not the current capability list.
+
+# Historical 0.1.0 acceptance snapshot — 2026-10-21
 
 Classification: **tested integration prototype**, not an OS-enforced lock or a production-ready multi-agent orchestration platform.
 

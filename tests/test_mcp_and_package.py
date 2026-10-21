@@ -27,7 +27,8 @@ def test_real_mcp_stdio_request_grant_wait_and_release(tmp_path):
                 initialized = await session.initialize()
                 assert initialized.serverInfo.name == "resource-coordinator"
                 tools = {tool.name for tool in (await session.list_tools()).tools}
-                assert len(tools) == 9
+                assert len(tools) == 16
+                assert {"coordination_board", "import_codex_status_snapshot", "report_development_status", "set_request_dependencies"}.issubset(tools)
                 assert not tools.intersection({"run", "execute", "shell", "kill_process"})
                 resources = [{"key": "asset:generic-test", "mode": "exclusive"}]
                 a = result_data(await session.call_tool("request_resources", {"owner": "chat-a", "purpose": "smoke test", "resources": resources}))
@@ -45,6 +46,14 @@ def test_real_mcp_stdio_request_grant_wait_and_release(tmp_path):
                 assert acquired["lease_token"] not in json.dumps(public)
                 assert result_data(await session.call_tool("complete_operation", args))["state"] == "completed"
                 assert result_data(await session.call_tool("acquire_resources", {"request_id": b["id"], "owner": "chat-b"}))["state"] == "leased"
+                registered = result_data(await session.call_tool("register_coordination_chat", {"chat_id": "chat-a", "label": "A", "project_key": "protocol-test"}))
+                assert registered["work_revision"] == 0
+                result_data(await session.call_tool("report_development_status", {"chat_id": "chat-a", "reporter": "chat-a", "work_state": "working", "summary": "More checks remain", "expected_revision": 0}))
+                view = result_data(await session.call_tool("coordination_board", {"project_key": "protocol-test"}))
+                assert view["chats"][0]["work_state"] == "working"
+                notices = result_data(await session.call_tool("coordination_changes", {"observer": "chat-a"}))
+                result_data(await session.call_tool("acknowledge_coordination_changes", {"observer": "chat-a", "cursor": notices["next_cursor"]}))
+                assert result_data(await session.call_tool("coordination_changes", {"observer": "chat-a"}))["changes"] == []
 
     asyncio.run(scenario())
 
@@ -66,6 +75,9 @@ def test_prepare_install_does_not_change_host_config_and_refuses_overwrite(tmp_p
     result = module.prepare(Path(sys.executable), target)
     assert result["codex_settings_changed"] is False
     assert result["client_restarted"] is False
+    for name in ("index.html", "panel.css", "panel.js"):
+        assert (target / "plugins/resource-coordinator/coordinator/panel" / name).is_file()
+    assert not list((target / "plugins/resource-coordinator").glob("*.egg-info"))
     for name in (".mcp.json", "mcp.json"):
         configuration = json.loads((target / "plugins/resource-coordinator" / name).read_text())
         assert configuration["mcpServers"]["coordinator"]["command"] == str(Path(sys.executable).resolve())
@@ -82,3 +94,14 @@ def test_manifest_links_resolve_inside_plugin():
     assert portable["name"] == manifest["name"]
     assert portable["version"] == manifest["version"]
     assert json.loads((PLUGIN / "mcp.json").read_text())["mcpServers"] == json.loads((PLUGIN / ".mcp.json").read_text())["mcpServers"]
+
+
+def test_install_smoke_refuses_existing_database(tmp_path):
+    spec = importlib.util.spec_from_file_location("smoke_plugin", ROOT / "scripts/smoke_install.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    existing = tmp_path / "existing.sqlite3"
+    existing.write_bytes(b"sentinel-do-not-overwrite")
+    with pytest.raises(ValueError, match="never overwritten"):
+        asyncio.run(module.smoke(PLUGIN, existing))
+    assert existing.read_bytes() == b"sentinel-do-not-overwrite"

@@ -1,6 +1,6 @@
 {
   "name": "resource-coordinator",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Local cooperative queues for shared builds, editors, assets and performance tests. No automatic process termination.",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
