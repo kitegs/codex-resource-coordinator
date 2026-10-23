@@ -210,7 +210,12 @@ def test_manual_complete_cannot_bypass_managed_journal(cli, tmp_path, monkeypatc
     call("begin", "--lease-file", receipt)
     token = json.loads(receipt.read_text())["lease_token"]
     monkeypatch.setattr("coordinator.operations.scope", lambda: {"synthetic": True})
+    # This is a journal-policy test, not native Windows identity acquisition.
+    # Stub both OS inputs so Linux exercises the same refusal assertions.
+    monkeypatch.setattr("coordinator.reboot.machine_fingerprint", lambda: "synthetic-machine-hash")
     Operations(store).prepare(request["id"], "a", token, "synthetic-hash", {"pid": 12345, "created": 100, "executable": "synthetic"})
+    with store.connection() as db:
+        assert db.execute("SELECT machine_hash FROM managed_operation_hosts WHERE request_id=?", (request["id"],)).fetchone()[0] == "synthetic-machine-hash"
     for outcome in ("completed", "failed", "cancelled"):
         assert "Managed operation" in call("complete", "--lease-file", receipt, "--outcome", outcome, code=1)["error"]
     assert store.status(request["id"])["state"] == "running"

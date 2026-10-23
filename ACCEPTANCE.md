@@ -8,6 +8,15 @@ For this repository revision's remote checks, inspect the matching commit in
 Local reports referenced below are deliberately not uploaded. Cross-client
 support and remaining adaptation work are listed in [CLIENT_COMPATIBILITY.md](CLIENT_COMPATIBILITY.md).
 
+The initial publication matrix at `b033bb3` exposed a Linux-only test-fixture
+omission: a synthetic managed-journal policy test stubbed the Windows scope but
+not the new machine fingerprint reader. It failed before reaching the refusal
+assertions. Both OS inputs are now explicitly synthetic in that test; the three
+manual-completion refusal cases and running-state assertion remain, and the
+stored synthetic binding is checked too. Production recovery restrictions were
+not weakened and the test was not skipped. CI runs the complete four-cell matrix
+without fail-fast cancellation so platform results remain independently visible.
+
 # Historical 0.5.2 verified reboot recovery — 2026-10-23
 
 Classification: **tested local integration prototype**, not an OS lock or automatic reboot monitor.
