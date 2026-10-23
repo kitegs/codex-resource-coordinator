@@ -46,6 +46,11 @@ class Handoffs:
         db.execute("INSERT INTO coordination_changes(at,subject,kind,attention) VALUES(?,?,?,?)", (self.store.clock(), notice["target_request"], kind, int(attention)))
 
     def enqueue_after_release(self, db, released):
+        # Store.finish passes its pre-update row; trust only the actual state in
+        # THIS release transaction, never a caller-supplied 'finished' snapshot.
+        released = self.store._row(db, released["id"])
+        if released["state"] not in ("completed", "failed", "cancelled"):
+            raise CoordinationError("Cannot notify availability before actual resource release")
         if not self._enabled(db, released["owner"]):
             return {"pending_count": 0, "mode": "not_enabled", "message_sent": False}
         source = self._chat(db, released["owner"])
@@ -131,8 +136,10 @@ class Handoffs:
             db.execute("UPDATE release_notices SET state='sending',dispatcher=?,claim_hash=?,deadline=?,updated=? WHERE id=?", (actor, hashlib.sha256(token.encode()).hexdigest(), self.store.clock()+120, self.store.clock(), notice_id))
             recipient = self._chat(db, row["recipient"])
             reference = db.execute("SELECT authorization_reference FROM handoff_routes WHERE chat_id=?", (row["recipient"],)).fetchone()[0]
-            prompt = f"协作资源交接（通知编号 {notice_id}）：你登记的请求 {row['target_request']} 的一个前置占用已结束。请查询共享队列，并按原有任务授权重新申请资源；只有取得占用且执行前检查通过后才开始。此通知不是执行许可，不要求回复，也不扩大你的任务或权限。"
-            return {"id": notice_id, "state": "sending", "claim_token": token, "authorization_reference": reference, "host_tool": "send_message_to_thread", "host_arguments": {"hostId": recipient["host_id"], "threadId": row["recipient"], "prompt": prompt}, "message_sent": False, "instruction": "First verify genuine human authorization for this destination. Invoke the native host tool at most once. Only a successful matching thread receipt may be acknowledged as delivered. A transport timeout/unknown result is uncertain, never retry automatically."}
+            released = self.store._row(db, row["released_request"])
+            outcome = {"completed":"成功", "failed":"失败或结果未证实", "cancelled":"取消"}.get(released["state"], "未证实")
+            prompt = f"协作资源交接（通知编号 {notice_id}）：上一占用已释放，本次作业结果：{outcome}。你登记的请求 {row['target_request']} 当前具备队列申请条件，请核对共享队列并按原任务授权重新申请；取得占用并完成执行前检查后再开始。资源释放不等于前置功能验收通过。无需回复本提醒，不扩大任务或权限。"
+            return {"id": notice_id, "state": "sending", "claim_token": token, "authorization_reference": reference, "released_outcome": released["state"], "host_tool": "send_message_to_thread", "host_arguments": {"hostId": recipient["host_id"], "threadId": row["recipient"], "prompt": prompt}, "message_sent": False, "instruction": "First verify genuine human authorization for this destination. Invoke the native host tool at most once. Only a successful matching thread receipt may be acknowledged as delivered. A transport timeout/unknown result is uncertain, never retry automatically."}
 
     def acknowledge(self, notice_id, actor, claim_token, outcome, receipt_thread_id=None, result_code=""):
         if outcome not in ("delivered", "not_sent", "uncertain"):
@@ -174,3 +181,20 @@ class Handoffs:
             db.execute("UPDATE release_notices SET state='pending',dispatcher=NULL,claim_hash=NULL,deadline=NULL,receipt_thread_id=NULL,result_code=NULL,updated=? WHERE id=?", (self.store.clock(), notice_id))
             self._event(db, row, "release_notice_explicitly_requeued")
             return {"id": notice_id, "state": "pending", "message_sent": False, "instruction": "Recheck genuine human messaging scope before claiming and sending again; this call does not send."}
+
+    def archive_obsolete(self, notice_id, actor):
+        """Archive only an unclaimed notice whose target has left waiting."""
+        with self.store.connection(write=True) as db:
+            row = db.execute("SELECT * FROM release_notices WHERE id=?", (notice_id,)).fetchone()
+            if row is None:
+                raise CoordinationError("Unknown release notice")
+            self._permitted(db, actor, row)
+            if row["state"] == "obsolete":
+                return {"id": notice_id, "state": "obsolete", "message_sent": False, "already_archived": True}
+            if row["state"] != "pending":
+                raise CoordinationError("Only an unclaimed pending notice may be archived; retain sending/uncertain receipts")
+            if self.store._row(db, row["target_request"])["state"] == "waiting":
+                raise CoordinationError("Target is still waiting; changed blockers are not grounds to archive")
+            db.execute("UPDATE release_notices SET state='obsolete',result_code='request_no_longer_waiting',updated=? WHERE id=?", (self.store.clock(), notice_id))
+            self._event(db, row, "release_notice_obsolete")
+            return {"id": notice_id, "state": "obsolete", "message_sent": False, "already_archived": False}

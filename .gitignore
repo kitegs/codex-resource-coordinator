@@ -13,4 +13,6 @@ build/
 *.pem
 *.key
 *.token
+*.claim.json
+*.lease.json
 reports/

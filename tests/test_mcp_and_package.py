@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 
 import pytest
 
@@ -27,9 +28,12 @@ def test_real_mcp_stdio_request_grant_wait_and_release(tmp_path):
                 initialized = await session.initialize()
                 assert initialized.serverInfo.name == "resource-coordinator"
                 tools = {tool.name for tool in (await session.list_tools()).tools}
-                assert len(tools) == 21
+                assert len(tools) == 23
+                assert "recover_managed_operation" in tools
                 assert {"coordination_board", "import_codex_status_snapshot", "report_development_status", "set_request_dependencies"}.issubset(tools)
                 assert not tools.intersection({"run", "execute", "shell", "kill_process"})
+                invalid_recovery = await session.call_tool("recover_managed_operation", {"request_id":"nonexistent", "owner":"chat-a"})
+                assert invalid_recovery.isError
                 for chat in ("chat-a", "chat-b"):
                     result_data(await session.call_tool("register_coordination_chat", {"chat_id":chat,"label":chat,"project_key":"protocol-test"}))
                     result_data(await session.call_tool("configure_release_notifications", {"chat_id":chat,"enabled":True,"authorization_reference":"synthetic explicit human scope"}))
@@ -67,6 +71,16 @@ def test_real_mcp_stdio_request_grant_wait_and_release(tmp_path):
                 notices = result_data(await session.call_tool("coordination_changes", {"observer": "chat-a"}))
                 result_data(await session.call_tool("acknowledge_coordination_changes", {"observer": "chat-a", "cursor": notices["next_cursor"]}))
                 assert result_data(await session.call_tool("coordination_changes", {"observer": "chat-a"}))["changes"] == []
+                # A separate release is archived only after the target cancels;
+                # no claim token or host message is created in this branch.
+                extra = result_data(await session.call_tool("request_resources", {"owner":"chat-a","purpose":"archive source","resources":[{"key":"test:archive","mode":"exclusive"}]}))
+                extra_lease = result_data(await session.call_tool("acquire_resources", {"request_id":extra["id"],"owner":"chat-a"}))
+                cancelled = result_data(await session.call_tool("request_resources", {"owner":"chat-b","purpose":"archive target","resources":[{"key":"test:archive","mode":"exclusive"}]}))
+                result_data(await session.call_tool("complete_operation", {"request_id":extra["id"],"owner":"chat-a","lease_token":extra_lease["lease_token"]}))
+                pending = result_data(await session.call_tool("release_notifications", {"actor":"chat-a"}))["notices"][0]
+                result_data(await session.call_tool("cancel_waiting", {"request_id":cancelled["id"],"owner":"chat-b"}))
+                archived = result_data(await session.call_tool("archive_obsolete_release_notification", {"notice_id":pending["id"],"actor":"chat-a"}))
+                assert archived["state"] == "obsolete" and archived["message_sent"] is False
 
     asyncio.run(scenario())
 
@@ -88,6 +102,7 @@ def test_prepare_install_does_not_change_host_config_and_refuses_overwrite(tmp_p
     result = module.prepare(Path(sys.executable), target)
     assert result["codex_settings_changed"] is False
     assert result["client_restarted"] is False
+    assert (target / "plugins/resource-coordinator/docs/CLI_FALLBACK.md").is_file()
     for name in ("index.html", "panel.css", "panel.js"):
         assert (target / "plugins/resource-coordinator/coordinator/panel" / name).is_file()
     assert not list((target / "plugins/resource-coordinator").glob("*.egg-info"))
@@ -100,6 +115,8 @@ def test_prepare_install_does_not_change_host_config_and_refuses_overwrite(tmp_p
 
 def test_manifest_links_resolve_inside_plugin():
     manifest = json.loads((PLUGIN / ".codex-plugin/plugin.json").read_text())
+    from coordinator import __version__
+    assert manifest["version"] == __version__ == tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     for name in ("skills", "mcpServers", "hooks"):
         target = (PLUGIN / manifest[name]).resolve(strict=True)
         assert target.is_relative_to(PLUGIN.resolve())

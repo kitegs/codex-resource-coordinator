@@ -48,6 +48,31 @@ def test_real_release_persists_next_candidate_and_does_not_send_or_acquire(tmp_p
     assert board.view()["chats"][0]["work_state"] == "unknown"
 
 
+def test_unreleased_request_cannot_forge_availability_notice(tmp_path):
+    store, _, handoffs, lease = setup(tmp_path)
+    waiting(store)
+    with store.connection(write=True) as db:
+        forged = {**dict(store._row(db, lease["id"])), "state":"completed"}
+        with pytest.raises(CoordinationError, match="actual resource release"):
+            handoffs.enqueue_after_release(db, forged)
+    assert handoffs.listing("a")["notices"] == []
+
+
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+def test_reminder_reports_outcome_without_granting_execution(tmp_path, outcome):
+    store, _, handoffs, lease = setup(tmp_path)
+    target = waiting(store)
+    finish(store, lease, outcome)
+    notice = handoffs.listing("a")["notices"][0]
+    claim = handoffs.claim(notice["id"], "a")
+    text = claim["host_arguments"]["prompt"]
+    assert claim["released_outcome"] == outcome
+    assert "上一占用已释放" in text and "重新申请" in text and "不等于前置功能验收" in text
+    assert "已取得资源" not in text
+    assert claim["message_sent"] is False
+    assert store.status(target["id"])["state"] == "waiting"
+
+
 def test_claim_mock_host_delivery_and_ack_are_separate_no_ping_pong(tmp_path):
     store, _, h, lease = setup(tmp_path)
     target = waiting(store)

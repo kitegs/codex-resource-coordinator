@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-resource-coordinator"
-version = "0.4.0"
+version = "0.5.2"
 description = "Local cooperative resource queues for parallel Codex chats"
 readme = "README.md"
 license = "MIT"

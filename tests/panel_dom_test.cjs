@@ -52,3 +52,33 @@ test("handoff recipient, uncertain result and accepted-not-read details stay dis
   assert.match(get("handoffs").textContent,/未确认已读/);
   get("attention-only").checked=true;get("attention-only").listeners.change();assert.doesNotMatch(get("handoffs").textContent,/提醒 b/);
 });
+test("obsolete notices stay inspectable but do not count as actionable",async()=>{
+  const state=fixture();state.chats=[];state.release_notices=[{id:"obsolete",recipient:"b",project_key:"test",target_request:"done",state:"obsolete",result_code:"request_no_longer_waiting",updated:Date.now()/1000}];
+  const h=await harness(state),get=id=>h.nodes.get(id);
+  assert.equal(get("metric-attention").textContent,"0");assert.match(get("handoffs").textContent,/已失效·未发送/);
+  get("handoffs").children[0].onclick();assert.match(get("detail").textContent,/领取前已失效/);
+  get("attention-only").checked=true;get("attention-only").listeners.change();assert.doesNotMatch(get("handoffs").textContent,/提醒 b/);
+});
+test("queue progress is local-conflict count not ETA, and monitoring samples are qualified",async()=>{
+  const state=fixture();state.queue=[{id:"wait",purpose:"Next compile",owner:"a",state:"waiting",resources:[],queue_progress:{waiting_ahead_count:2},eligible_by_queue_rules:false},{id:"monitor",purpose:"Running",owner:"b",state:"suspect",resources:[],operation:{phase:"needs_verification",active_processes:1,updated:Date.now()/1000}}];
+  const h=await harness(state),get=id=>h.nodes.get(id);
+  assert.match(get("queue").textContent,/同资源前方 2 项等待/);assert.match(get("queue").textContent,/作业监护待核查/);
+  get("queue").children[0].onclick();assert.match(get("detail").textContent,/不估算等待时间/);
+  get("queue").children[1].onclick();assert.match(get("detail").textContent,/恢复只观察/);
+});
+test("simple overview shows current owner, next candidate and actual delivery state",async()=>{
+  const state=fixture();state.queue=[{id:"held",purpose:"Build",owner:"a",state:"running",resources:[]},{id:"next",purpose:"Test",owner:"b",state:"waiting",resources:[],resource_blocker_details:[{id:"held",owner:"a",state:"running"}]}];
+  const h=await harness(state),get=id=>h.nodes.get(id);
+  assert.equal(get("handoff-current").textContent,"a");assert.match(get("handoff-next").textContent,/b · 待前方释放/);assert.match(get("handoff-delivery").textContent,/尚无提醒/);
+  state.queue.shift();state.queue[0].eligible_by_queue_rules=true;state.release_notices=[{id:"notice",recipient:"b",project_key:"b",target_request:"next",state:"pending",updated:1}];h.set(state);await h.context.refresh();
+  assert.match(get("handoff-next").textContent,/可申请，尚未获占用/);assert.match(get("handoff-delivery").textContent,/待代发/);
+  state.release_notices[0].state="delivered";h.set(state);await h.context.refresh();assert.match(get("handoff-delivery").textContent,/投递受理·未确认已读/);
+  state.release_notices[0].state="uncertain";h.set(state);await h.context.refresh();assert.match(get("handoff-delivery").textContent,/勿重发/);
+});
+test("overview does not turn dependency blockage, truncated data or disconnection into clearance",async()=>{
+  const state=fixture();state.queue=[{id:"wait",purpose:"Test",owner:"b",state:"waiting",resources:[],dependency_blockers:[{id:"failed",state:"failed"}]}];
+  const h=await harness(state),get=id=>h.nodes.get(id);assert.match(get("handoff-next").textContent,/前置条件未满足/);
+  state.queue_truncated=true;h.set(state);await h.context.refresh();assert.match(get("handoff-next").textContent,/状态未确认/);
+  state.queue_truncated=false;h.set(state);await h.context.refresh();h.fail("disconnect");await h.context.refresh();assert.match(get("handoff-current").textContent,/状态未确认/);
+  h.set(fixture());await h.context.refresh();assert.match(get("handoff-current").textContent,/仍需现场检查/);
+});

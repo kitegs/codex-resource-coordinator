@@ -1,6 +1,7 @@
 from concurrent.futures import ProcessPoolExecutor
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import sys
 
@@ -143,7 +144,7 @@ def test_runner_does_not_start_queued_command(tmp_path):
     lease(store)
     queued = store.request("queued", "blocked command", resource())
     marker = tmp_path / "must-not-exist.txt"
-    result = run(store, queued["id"], "queued", [sys.executable, "-c", "from pathlib import Path; Path(__import__('sys').argv[1]).touch()", str(marker)])
+    result = run(store, queued["id"], "queued", [sys.executable, "-c", "from pathlib import Path; Path(__import__('sys').argv[1]).touch()", str(marker)], tracking="contained" if os.name == "nt" else "observed")
     assert result == 3
     assert not marker.exists()
 
@@ -153,7 +154,7 @@ def test_runner_foreground_completion_and_failure(tmp_path, exit_code):
     from coordinator.runner import run
     store = Store(tmp_path / "queue.sqlite3")
     queued = store.request("runner", "small owned command", resource())
-    assert run(store, queued["id"], "runner", [sys.executable, "-c", f"raise SystemExit({exit_code})"]) == exit_code
+    assert run(store, queued["id"], "runner", [sys.executable, "-c", f"raise SystemExit({exit_code})"], tracking="contained" if os.name == "nt" else "observed") == exit_code
     assert store.status(queued["id"])["state"] == ("completed" if exit_code == 0 else "failed")
 
 

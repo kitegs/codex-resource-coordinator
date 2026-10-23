@@ -115,6 +115,20 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS notices_target_created ON release_notices(target_request,created);
                 CREATE INDEX IF NOT EXISTS notices_project_state ON release_notices(project_key,state,created);
+                CREATE TABLE IF NOT EXISTS managed_operations (
+                    request_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE,
+                    command_hash TEXT NOT NULL, job_name TEXT NOT NULL, scope TEXT NOT NULL,
+                    monitor TEXT NOT NULL, monitor_hash TEXT NOT NULL,
+                    phase TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
+                    root TEXT, root_exit INTEGER, active_processes INTEGER,
+                    result TEXT, error TEXT
+                );
+                CREATE TABLE IF NOT EXISTS managed_operation_hosts (
+                    request_id TEXT PRIMARY KEY, machine_hash TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS managed_reboot_recoveries (
+                    request_id TEXT PRIMARY KEY, evidence TEXT NOT NULL, created REAL NOT NULL
+                );
                 PRAGMA user_version=2;
             """)
 
@@ -171,6 +185,21 @@ class Store:
         if db is not None:
             item["depends_on"] = [r[0] for r in db.execute("SELECT prerequisite FROM request_dependencies WHERE request_id=? ORDER BY prerequisite", (item["id"],))]
             item["dependency_blockers"] = self._dependency_blockers(db, item["id"])
+            if item["state"] == "waiting":
+                _, blockers = self._waiting_blockers(db, row)
+                ahead = [dict(r) for r in db.execute("SELECT id,owner,purpose,state FROM requests WHERE sequence<? AND state='waiting' ORDER BY sequence", (item["sequence"],)) if r["id"] in blockers]
+                item["queue_progress"] = {"waiting_ahead": ahead, "waiting_ahead_count": len(ahead), "blocked_by": blockers,
+                                          "eligible": not blockers and not item["dependency_blockers"], "eta_seconds": None}
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='managed_operations'").fetchone():
+                operation = db.execute("SELECT operation_id,phase,updated,root_exit,active_processes,result,error FROM managed_operations WHERE request_id=?", (item["id"],)).fetchone()
+                if operation:
+                    item["operation"] = dict(operation)
+                    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='managed_reboot_recoveries'").fetchone():
+                        recovery = db.execute("SELECT created FROM managed_reboot_recoveries WHERE request_id=?", (item["id"],)).fetchone()
+                        if recovery:
+                            item["operation"]["recovery"] = {"kind": "verified_reboot", "recovered_at": recovery["created"]}
+                    if item["state"] == "suspect" and item["operation"]["phase"] != "finished":
+                        item["operation"]["phase"] = "needs_verification"
         return item
 
     def _dependency_blockers(self, db, request_id):
@@ -322,6 +351,7 @@ class Store:
             raise CoordinationError("Outcome must be completed, failed, or cancelled")
         with self.connection(write=True) as db:
             row = self._active(db, request_id, owner, token)
+            self._reject_managed_completion(db, request_id)
             self._confirm_processes_gone(row)
             db.execute("UPDATE requests SET state=?,result=?,token_hash=NULL,updated=? WHERE id=?", (outcome, outcome, self.clock(), request_id))
             self._event(db, request_id, outcome)
@@ -347,6 +377,7 @@ class Store:
             self._expire(db)
             row = self._row(db, request_id)
             self._owned(row, owner)
+            self._reject_managed_completion(db, request_id)
             if row["state"] != "suspect":
                 raise CoordinationError("Reconcile only suspect reservations")
             self._confirm_processes_gone(row)
@@ -355,3 +386,8 @@ class Store:
             from .handoff import Handoffs
             handoff = Handoffs(self).enqueue_after_release(db, row)
             return {**self._public(self._row(db, request_id), db), "release_handoff": handoff}
+
+    @staticmethod
+    def _reject_managed_completion(db, request_id):
+        if db.execute("SELECT 1 FROM managed_operations WHERE request_id=?", (request_id,)).fetchone():
+            raise CoordinationError("Managed operation: use watch/recover; recorded PIDs alone cannot prove the job drained")

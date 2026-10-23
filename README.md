@@ -2,13 +2,40 @@
 
 给并行本地对话使用的**协作资源队列**：源码可在 Git 工作树里并行修改，共用编译产物、编辑器、资产和性能测试窗口则先申请占用。独立本机 SQLite 保存队列，MCP 提供工具，命令启动器拿到许可才运行。不是 OpenAI 官方产品。
 
-**当前为 0.4.0 验证原型，不是安全隔离层。** 未经接入的构建、应用或手工操作不受它控制。空队列不代表没有 UE 运行。排到队不代表获得关闭编辑器、丢弃资产或停止他人工作的授权。
+**当前为 0.5.2 本地集成原型，不是安全隔离层。** 未经接入的构建、应用或手工操作不受它控制。空队列不代表没有 UE 运行。排到队不代表获得关闭编辑器、丢弃资产或停止他人工作的授权。
 
 0.2 新增共享开发状态板、状态新鲜度、成功依赖排序和低噪声变更游标。详见[协作信息与缺口](COORDINATION_DESIGN.md)。它不是完整的 Agent Teams 总控，不自动创建／接管对话或发送消息。
 
 0.3 增加本机只读面板：项目筛选、对话状态、资源队列、版本／证据详情、过期与断线提示。可在普通浏览器或 Codex 浏览器侧栏查看，不是 Codex 原生插件侧栏扩展。
 
 0.4 增加持久化交接通知：真实释放后挑选下一候选，由完成方使用宿主消息工具代发，记录投递受理、明确失败或结果不明；面板显示接收者和通知状态。没有独立后台通知服务，也没有保证消息已读。
+
+0.4.1 补齐CLI登记、版本保护的进度上报、变化／游标、依赖与完整通知处理入口；领取凭据留在私有文件，不打印token。增加未发送失效提醒的显式归档，不清除结果不明记录。MCP未加载时也能沿同一队列工作，详见[CLI后备流程](plugins/resource-coordinator/docs/CLI_FALLBACK.md)。不热覆盖其他对话正在使用的旧缓存。
+
+0.5 增加 Windows 作业监护、重复启动保护和有证据的恢复；前台只突出“谁在用、下一位、提醒结果”。正常释放后沿用同一发件箱提醒，不广播每种状态，不把失败当验收成功。[使用与边界](plugins/resource-coordinator/docs/SUPERVISION_05.md)。
+
+0.5.1 补齐手动GUI／资产操作的 CLI `acquire → begin → renew → complete`。令牌只留私有回执，排队不会启动工作；过期仍阻挡，不能绕过受监护作业。自动编译继续使用 `run`，不要求人手动操作四个步骤。详见[CLI流程第2a节](plugins/resource-coordinator/docs/CLI_FALLBACK.md)。MCP配置保持不变。
+
+0.5.2 增加仅 CLI 的[跨重启恢复](plugins/resource-coordinator/docs/REBOOT_RECOVERY.md)：先只读核对，再显式确认；CIM 与两次真实系统启动事件、同机身份及旧进程时间必须同时成立。旧作业记为中断／结果未知，不解锁成功依赖，不重跑命令。旧票缺少机器指纹时额外依赖操作者同机确认，不能称自动证明。旧版准备副本／运行进程不热覆盖。
+
+各对话先自行判断下一操作是否需要协调：普通读取和独立源码修改不排队；共享输出、编辑器重启／控制、同资产写入、性能采样再申请。不自动扫描对话、把所有任务入队或让整个对话长期占资源。
+
+## 其他模型和客户端能否使用
+
+**队列核心不绑定模型，也不调用模型 API。** CLI 可由有本机命令执行权限的客户端
+调用；MCP 服务使用标准 stdio。Codex 的插件安装、提醒 Hook 和原生对话消息接口
+则属于宿主接入，不能自动搬到其他客户端。详见[跨客户端接入](CLIENT_COMPATIBILITY.md)。
+
+| 入口 | 可复用范围 | 已验证边界 |
+| --- | --- | --- |
+| CLI | 能执行本机 Python 命令的代理／脚本 | Windows 本机 CLI 和独立队列场景已测 |
+| MCP stdio | 支持本机 stdio MCP 的客户端 | 独立 Python MCP 客户端真实握手与调用已测；不代表所有产品已适配 |
+| 只读面板 | 能访问本机回环地址的浏览器 | HTTP／DOM 测试已覆盖；不是任意宿主的原生侧栏 |
+| 跨对话提醒 | 需要宿主提供消息发送能力与真实授权 | 当前返回 Codex 宿主调用参数；其他宿主需适配或只查队列 |
+
+公开源码不包含本机状态库、安装副本、凭据和测试日志。运行时的状态、路径等仍可能
+作为工具结果交给你的模型客户端；这不等于完全离线或不会被宿主上传。
+发布前检查及剩余风险见[公开检查说明](PUBLICATION_CHECKLIST.md)和[安全边界](SECURITY.md)。
 
 ## 架构
 
@@ -40,7 +67,7 @@ Codex 对话 C ─┘                    │ 原子申请全部资源
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -e '.[test]'
 ./.venv/Scripts/python.exe -m pytest -q
-./.venv/Scripts/python.exe scripts/prepare_install.py --python .venv/Scripts/python.exe --target .local/marketplace-v0.4.0
+./.venv/Scripts/python.exe scripts/prepare_install.py --python .venv/Scripts/python.exe --target .local/marketplace-v0.5.2
 ```
 
 Linux 对应解释器为 `.venv/bin/python`。准备脚本拒绝覆盖已有目标，生成独立安装副本，固定其 MCP 和提醒 Hook 使用的解释器；**不修改 Codex 设置、不启动服务、不重启客户端**。源码清单中的默认 `python` 仅适用于已安装依赖的同一解释器，不要误用另一个 Python。
@@ -80,11 +107,11 @@ MCP 也可直接连接准备副本的 `scripts/server.py`，解释器仍使用�
 
 在 Codex 中用 `$resource-coordination`。建议先让两个测试对话在测试资源上申请，不要立即接管已运行的 UE。旧任务必须由其负责人明确交接。
 
-MCP 工具有 21 个：
+MCP 工具有 23 个（新增 recover_managed_operation，仅核查、不执行命令）；CLI后备不要求当前对话已经载入这些工具：
 
 - 原子占用：`queue_status`、`request_resources`、`set_request_dependencies`、`acquire_resources`、`begin_operation`、`renew_lease`、`complete_operation`、`cancel_waiting`、`reconcile_expired`、`plan_ue_resources`。
 - 共享状态：`register_coordination_chat`、`report_development_status`、`import_codex_status_snapshot`、`coordination_board`、`coordination_changes`、`acknowledge_coordination_changes`。
-- 交接通知：`configure_release_notifications`、`release_notifications`、`claim_release_notification`、`acknowledge_release_notification`、`retry_failed_release_notification`。
+- 交接通知：`configure_release_notifications`、`release_notifications`、`claim_release_notification`、`acknowledge_release_notification`、`retry_failed_release_notification`、`archive_obsolete_release_notification`。
 
 服务器不提供任意命令执行、杀进程、Git 集成或消息发送能力。
 
@@ -108,6 +135,7 @@ MCP 工具有 21 个：
 | 投递受理 `delivered` | 宿主成功回执匹配目标；不证明已读、开始执行或取得资源 |
 | 明确未发送 `failed` | 保留原因；修复工具／授权等问题并确认未发送后，可显式重新排队 |
 | 结果不明 `uncertain` | 可能已发出；核对原回执，不盲目重发或改用另一通道补发 |
+| 已失效 `obsolete` | 领取前目标已不再等待；显式归档、保留历史，未发送，也不计作待处理 |
 
 普通队列查询是兜底。**若所有对话都已停止，本版没有后台服务独立唤醒它们。** 官方也提供 [`codex queue`](https://learn.chatgpt.com/docs/developer-commands) 给既有会话排消息，但该通道未在本插件内接入／验证，不能把“已入队”当“已处理”。
 
@@ -121,7 +149,7 @@ MCP 工具有 21 个：
 4. 请求可以附 `depends_on` 成功依赖。只认前置请求 `completed`，不把失败、取消或对话本轮结束当成功。拒绝依赖环；没满足依赖的请求不挡住可执行的前置任务。
 5. 用变更游标只看相关项目的新变化，跨项目但实际冲突的资源释放仍可见。处理后确认 `next_cursor`，恢复对话不重复提醒。无相关变化保持安静，不反复催问；提醒和发消息是两回事。
 
-CLI 的 `board` 也可查看状态；`ingest-status --snapshot <紧凑JSON文件> --observed-at <采集时Unix秒>` 导入已授权的状态快照。运行数据只留本机，不上传本仓库。
+CLI 的 `register-chat`／`report-status --input <JSON文件或->`／`board`／`changes`／`ack-changes` 覆盖登记、自己上报及低噪声读取；`ingest-status --snapshot <紧凑JSON文件> --observed-at <采集时Unix秒>` 导入已授权的状态快照。`notifications` 提供configure／list／claim／ack／retry／archive，但不自行发送消息。[完整CLI说明](plugins/resource-coordinator/docs/CLI_FALLBACK.md)。运行数据只留本机，不上传本仓库。
 
 升级需在各参与对话到稳定点后，结束旧 MCP 实例并统一重载 0.2+，再依赖新排序规则。数据库为加表升级，保留旧请求。旧插件不能被默认为已更新，不因安装自动接管已有进程。
 
@@ -137,7 +165,9 @@ $coord = 'plugins/resource-coordinator/scripts/coordinate.py'
 
 返回码：`0` 成功；`3` 排队，命令**没有启动**；其他为命令失败或协调错误，先查请求状态，不要自动重跑。
 
-命令仍须通过正常执行工具及其权限审批。只支持前台、不后台脱离的命令；不支持把 `start`/daemon 化程序当已跟踪任务。启动器保守记录观察到的子进程，但不保证看到所有瞬时或脱离的子进程。中断、监控错误或主进程退出但孩子仍活动时，保留占用并人工核查。它不限制 CPU/显存，需组合已有的负载限制器。
+命令仍须通过正常执行工具及其权限审批。**0.5 默认 Windows 10+ Job 监护**：普通监护子进程从启动时归组，等整组结束才释放；重复 run 不重启。客户端中断不等于监护结束，宿主取消仍然有效。组名查不到、权限不足或证据丢失时不靠超时回收。新增 recover／watch 只核查／接续监测，不重跑命令。[完整规则、用法与边界](plugins/resource-coordinator/docs/SUPERVISION_05.md)。
+
+非 Windows 不静默降级；可显式 `--tracking observed` 使用旧轮询，但无安全自动恢复保证。不追踪 WMI、服务、计划任务或远程代理另起的工作；不限制 CPU/显存。不得用旧客户端手动完成／恢复 0.5 票据。面板显示同资源前方等待数和阻塞者，不估算 ETA。
 
 ## UE 接法
 
@@ -157,7 +187,7 @@ $coord = 'plugins/resource-coordinator/scripts/coordinate.py'
 
 自测覆盖真实多进程竞争、FIFO、共享/独占、全部资源原子申请、取消、幂等、过期保留、旧令牌、存活/未知进程拒绝释放、命令未启动证明、前台成功/失败、MCP stdio 和安装副本；另有非 UE 的数据库迁移场景。具体结果看本次报告，不以测试数量替代实际 Codex/UE 接入验收。
 
-安装后可用 `scripts/smoke_install.py --plugin <安装副本目录> --db <全新的隔离数据库绝对路径>` 检查真实 MCP 通信、21 个工具、成功依赖、状态上报、变更确认及模拟消息回执。它拒绝覆盖已有数据库，不启动 UE、不向真实对话发测试消息，也不证明当前 Codex 对话已加载插件。[验收记录](ACCEPTANCE.md) 区分自动测试、安装副本与宿主实际接入。
+安装后可用 `scripts/smoke_install.py --plugin <安装副本目录> --db <全新的隔离数据库绝对路径>` 检查真实 MCP 通信、23 个工具、成功依赖、状态上报、变更确认及模拟消息回执。它拒绝覆盖已有数据库，不启动 UE、不向真实对话发测试消息，也不证明当前 Codex 对话已加载插件。[验收记录](ACCEPTANCE.md) 区分自动测试、安装副本与宿主实际接入。
 
 尚不具备：自动接管旧会话、后台原生事件订阅、操作系统级强制互斥、完备命令解析、任意后台进程追踪、跨机器锁服务、自动抢占、GPU 预算、多人安全认证。状态桥接和里程碑上报仍需参与者执行。全局 Hook 不是可靠的 fail-closed 边界；本版不假装提供。
 

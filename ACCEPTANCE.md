@@ -1,4 +1,270 @@
-# Current 0.4.0 acceptance snapshot — 2026-10-22
+# 0.5.2 public source snapshot
+
+This document retains dated, redacted integration snapshots, including failures
+and remaining gates. Past statements about installed versions, absent native
+tools or lack of publication describe those dates, not every current client.
+For this repository revision's remote checks, inspect the matching commit in
+[GitHub Actions](https://github.com/kitegs/codex-resource-coordinator/actions).
+Local reports referenced below are deliberately not uploaded. Cross-client
+support and remaining adaptation work are listed in [CLIENT_COMPATIBILITY.md](CLIENT_COMPATIBILITY.md).
+
+# Historical 0.5.2 verified reboot recovery — 2026-10-23
+
+Classification: **tested local integration prototype**, not an OS lock or automatic reboot monitor.
+Only the independent prepared CLI copy was added; installed Codex selection, old
+0.5.1 runners, hooks, clients and UE windows were not replaced or restarted.
+
+- 184 pytest cases passed, zero failures/errors/skips, in 57.34 seconds, including
+  32 new reboot-policy/CLI/native-probe cases. Evidence:
+  `reports/RebootRecovery-0.5.2-20261023/pytest-full.xml`.
+- Eight existing Node DOM tests passed; UI was not redesigned. Prepared 0.5.2
+  passed real stdio round trips with the unchanged 23 MCP tools and a NEW isolated
+  database. Native current-chat MCP adoption is not claimed.
+- New `recover-reboot --check-only` checks structured Windows startup events and
+  CIM, owner, original timestamps and process identities. Actual recovery needs
+  explicit reboot AND same-machine confirmation, plus an audit note. Unknown,
+  absent, conflicting, access-denied, same-boot, changed-record and race cases
+  keep resources. Transaction rollback preserves both lease and audit integrity.
+- Normal new contained jobs bind a hash of Windows MachineGuid. Pre-0.5.2 jobs
+  cannot retroactively prove that binding; their recovery additionally relies on
+  explicit same-machine attestation plus matching historical OS boot events.
+  This is cooperative local recovery, not authentication of a copied database.
+- With direct user approval, ONE real pre-existing interrupted flight test ticket
+  was verified across the already-occurred Windows reboot and recovered through
+  the prepared CLI. A consistent private SQLite backup was made BEFORE migration
+  or recovery. The other 113 request rows were unchanged. Result is failed/unknown,
+  not test success; no payload restarted or successful dependency unlocked.
+- The already-running post-reboot UE demonstration remained untouched. A targeted
+  authorized resource-status message was sent to its owner; there was no generated
+  pending release notice or broad broadcast. No commit or GitHub publication.
+
+Still pending: deliberate host reboot/power-loss campaigns, missing/rotated event
+history recovery (currently refuses), other Windows versions, Linux recovery,
+hardware migration and native plugin/MCP reload. Synthetic boot records are not
+claimed as real reboot execution. This patch adds a fixed read-only OS probe,
+not arbitrary command execution, a force-unlock endpoint or a background service.
+
+The following 0.5.1 snapshot is historical.
+
+# Historical 0.5.1 prepared CLI patch — 2026-10-22
+
+Classification: **tested local integration prototype**. Source and an independent
+prepared copy are usable now. The native installed selection remains **0.5.0**;
+neither its cache nor the stable marketplace catalog was replaced. The previous
+native installer pruned old caches, so this patch deliberately avoids reinstalling
+while other chats can still reference them. No Codex/UE restart, MCP disablement,
+hook change, real cross-chat message, commit or GitHub push occurred.
+
+## Delivered and verified
+
+- Four CLI commands reuse the existing Store: `acquire` writes a NEW private
+  lease receipt, then `begin`, `renew`, and `complete` consume it. Tokens are not
+  printed or passed as command arguments. No new queue/schema/dependency exists.
+- Final source regression: **152 pytest cases passed**, zero failures, errors
+  or skips, in 59.60 seconds, including **29 new manual-CLI cases**.
+  Evidence: `reports/ManualCLI-0.5.1-20261022/pytest-full.xml`.
+- **50 targeted cases passed** after correcting a test-harness issue:
+  `reports/ManualCLI-0.5.1-20261022/targeted-second.xml`. The first run retained
+  at `targeted.xml` had 47 passes and setup/teardown errors: pytest put a 65 KiB
+  parameter into PYTEST_CURRENT_TEST, exceeding Windows' environment limit.
+  Explicit short test IDs fixed the harness; the oversized-input assertion was
+  not removed or weakened.
+- **8 Node DOM tests passed**: `reports/ManualCLI-0.5.1-20261022/dom.xml`.
+- The prepared copy passed actual stdio discovery and round trips for the
+  unchanged **23 MCP tools** using a NEW isolated database:
+  `reports/ManualCLI-0.5.1-20261022/prepared-protocol.sqlite3`.
+  This is protocol regression with synthetic transport, not current-chat MCP
+  loading, real message delivery or recipient-consumption proof.
+- A real shared-database request passed
+  through all four manual actions (private request ID omitted):
+  source acquire/begin, then prepared-copy renew/complete. It is completed;
+  the old installed 0.5 CLI also sees an empty active queue. Own release outbox
+  was checked and empty; no messages were sent. Packaging commands had actually
+  ended before manual completion. No real GUI/asset was edited by this test.
+- Prepared/source comparison matched all **22 files** excluding the three
+  intentionally fixed-interpreter MCP/hook configs. Existing 0.4 and 0.5 caches
+  still matched their preserved originals (**21 and 25 files**, respectively).
+
+## Entry point and remaining boundaries
+
+Use the interpreter recorded in your independently prepared copy's `.mcp.json`
+with that copy's `scripts/coordinate.py`. Do not copy another user's absolute
+installation paths; generate your own copy with `scripts/prepare_install.py`.
+
+The shared database and resource keys stay the same; CLI needs no MCP reload.
+See [CLI workflow, section 2a](plugins/resource-coordinator/docs/CLI_FALLBACK.md).
+Default manual TTL is 120 seconds, configurable 10..3600; there is no unattended
+manual heartbeat. Expiry remains blocking and needs verified reconciliation.
+Receipts are not live state; successful completion invalidates their token.
+Windows secrecy depends on the chosen parent-directory ACL, not just mode 0600.
+The real test receipt used a new directory restricted to user/System/Admins.
+
+Queued/tokenless receipts, wrong database/owner/token, malformed/oversized input,
+existing files, missing directories, fsync failure, expired leases, repeated
+actions, live/unverifiable recorded processes and competing CLI processes are
+covered. Manual `complete` cannot release managed 0.5 jobs even with a valid
+token and any of its three outcomes. The command does not save assets, inspect
+unregistered GUI work or grant application-control authority. No new force-clear,
+background wakeup, platform quota or claim of full GUI integration was added.
+
+---
+
+# Historical 0.5.0 installed integration prototype — 2026-10-22
+
+Classification: **tested local integration prototype**, not a security boundary,
+an unattended chat-wakeup daemon or a claim that every existing chat reloaded.
+Source remains `b32e902` plus this chat's dirty 0.4.1/0.5 changes; no commit or
+GitHub push is claimed. All UE windows and other chats were left running.
+
+## Verified
+
+- Final frozen-source regression: **123 pytest cases passed**, zero failures,
+  errors or skips, in 37.34 seconds. Evidence:
+  `reports/Supervision-0.5-20261022/pytest-final.xml`.
+- **8 Node DOM behavior tests passed**, including the simple current/next/delivery
+  overview, dependency blockage, truncated/disconnected data, uncertain sends,
+  text-only rendering and the distinction between delivered/read/acquired.
+  Evidence: `reports/Supervision-0.5-20261022/dom.xml`.
+- Both the immutable prepared copy and the actual installed cache passed real
+  stdio discovery of **23 MCP tools**, dependency/status/cursor round trips,
+  synthetic handoff transport and cleanup. Isolated evidence databases:
+  `reports/Supervision-0.5-20261022/prepared-protocol.sqlite3` and
+  `reports/Supervision-0.5-20261022/installed-protocol.sqlite3`.
+  Transport was mocked: this does NOT establish real recipient consumption.
+- Native `codex plugin add resource-coordinator@resource-coordination-local`
+  returned installed version **0.5.0** in the user's plugin-cache directory
+  (private absolute installation path omitted).
+  The stable local catalog now selects `./versions/0.5.0/plugins/resource-coordinator`.
+  No app restart, hook-trust bypass or UE operation occurred. The native installer
+  DID automatically remove the old 0.4 cache; post-install checks detected this.
+  The full 0.4 cache was restored from its preserved original version directory,
+  with the runner matching the recorded pre-install hash. No old/new process was
+  stopped, but uninterrupted behavior during the brief missing-cache interval
+  is not claimed. Future upgrades must account for installer cache pruning.
+- The installed/prepared CLI uses the existing shared database and resource keys.
+  Real shared-queue managed checks completed with root exit 0, active group count
+  0 and atomic resource release for the panel, prepared protocol, final
+  regression and installed protocol checks. Private request IDs are omitted.
+  No real cross-chat message was sent.
+- Prepared plugin files match source, excluding deliberately fixed-interpreter
+  MCP/hook configuration; the installed 0.5 cache matches the accepted prepared
+  copy. Before installation and after restoration, the old 0.4 runner matched
+  `1B27E957566051CC03E1EB39109363D92BA0DF3D9FAE2E5185561B5AF166CD7C`.
+
+## Behavior delivered
+
+- Chats judge the NEXT operation's actual shared resources themselves. Read-only
+  work and isolated worktree edits need no ticket; shared builds/linking, editor
+  restart/control, same-asset writes and performance capture do. No entire-chat
+  automatic reservation or arbitrary command/chat scanning was added.
+- Windows 10+ starts a normal supervisor worker, atomically associates the
+  payload using JOB_LIST, retains the enclosing host's controls, and waits for
+  the WHOLE contained process group, not only its first parent. No breakaway,
+  process termination, detached service, elevation or automatic command retry.
+- Journaled operation identity and hashed monitor claims prevent duplicate run
+  or takeover of an alive/unverifiable monitor. Recovery only observes existing
+  work. Nonzero or unknown results do not unblock success dependencies.
+- Release uses the existing durable outbox. The finishing chat checks it and
+  an authorized active participant can dispatch once with native host messaging.
+  Uncertain sends remain uncertain; no blind retry, reply loop or auto-acquire.
+- The normal panel emphasizes who is using resources, the next applicant and
+  actual reminder state. Technical details remain expandable. Counts are local
+  conflicting-waiter counts, not estimated durations or universal global ranks.
+
+## Failure found and corrected
+
+Initial native fault-injection had 15 passes and 2 failures
+(`operations-initial.xml`). It exposed an unsafe assumption: inability to reopen
+a Windows Job by name after monitor loss is NOT sufficient process-drain proof.
+The false-release path was removed, the client and supervisor lifecycles were
+separated, and recovery now requires a still-queryable group or a durable prior
+completion transaction. Lost group names/access denial retain the reservation.
+The later 40-case targeted suite (`operations-second.xml`) and final full suite
+cover these failure cases without weakening the release assertion.
+
+## Explicit remaining gates
+
+- Current-host native coordination MCP tools were still absent after installation;
+  the installed CLI is usable now, but fresh/resumed-chat MCP loading and genuine
+  inter-chat notice delivery/receiver consumption require separate validation.
+- No activity means no independent chat wakeup: pending notices persist until an
+  authorized active chat handles them. Actual Codex desktop Stop-button process
+  semantics were not claimed from synthetic client/monitor termination tests.
+- Lost ALL group handles plus lost completion proof remains manual investigation,
+  with no force-clear button. Legacy/manual tickets are not auto-adopted. Old
+  clients must not complete/reconcile 0.5 managed requests.
+- Real-browser layout acceptance, large-scale queue/performance measurements,
+  power loss/disk-full behavior, Linux/Python CI and wheel delivery are not proven.
+  Foreground CreateProcess trees only: WMI/services/schedulers/remote brokers are
+  not supported external process ownership. This is not an OS-enforced mutex.
+
+Usage and workflow: `plugins/resource-coordinator/docs/SUPERVISION_05.md`.
+
+The following snapshots are historical.
+
+# Historical 0.4.1 CLI fallback acceptance — 2026-10-22
+
+Classification: **tested local integration prototype**, not a background chat
+wakeup service or a security boundary. Source base is `b32e902` plus the dirty
+0.4.1 CLI/docs/tests changes; no GitHub push is claimed.
+
+## Verified this round
+
+- Windows Python 3.13: all 99 pytest cases passed, zero failed/error/skipped.
+  This includes the 21 new CLI cases and the prior queue, migration, real
+  multiprocess, runner, panel and real MCP stdio regression suite. The new MCP
+  archive endpoint and manifest/package version consistency are exercised too.
+- Five Node DOM behavior tests passed. Obsolete notices remain inspectable but
+  no longer count as actionable in the NEW panel code. No browser visual
+  acceptance or live upgrade of an old panel is claimed.
+- A NEW `.local/marketplace-v0.4.1` prepared plugin passed the real stdio protocol
+  smoke with 22 tools, dependency/status/cursor handling, mock host transport
+  and all synthetic reservations released. Its six critical CLI/core/skill/doc
+  files exactly match the tested source. This is NOT current-host tool loading.
+- CLI supports chat registration, revision-protected self-reporting (UTF-8 file
+  or stdin, including BOM), changes/ack, dependency editing, notification scope,
+  listing, private-file claim/ack, definite-failure retry and obsolete archive.
+  It calls the same Store/Board/Handoffs as MCP, not a new coordination database.
+- The CLI tests cover wrong/stale/peer reports, malformed JSON, UTF-8 pipes,
+  real foreground release, competing CLI dispatchers, file overwrite refusal,
+  simulated fsync failure, wrong-database/wrong-recipient receipts, stale claims,
+  no-longer-waiting deferral, explicit known-failure retry, uncertain-send retry
+  refusal and idempotent archive. Token output/argv is avoided via a NEW private
+  claim file. Windows ACLs are inherited; a private parent is still required.
+- Against the REAL shared database, the source CLI updated only this chat's
+  self-report and imported a freshly captured native driver status snapshot.
+  The prepared CLI then archived the known never-claimed obsolete notice. That
+  archive preserved history, sent no message and did not change the target job.
+- Tests used the actual shared load queue. The first attempt waited behind a
+  vehicle capture without starting its child. Once released, the 21-case run
+  and later complete 99-case/copy-smoke run each exited normally and released
+  their own requests. No UE/editor/process was stopped by this task.
+- No new dependency, host config edit, Hook trust change, client restart or
+  hot overwrite of the installed 0.4.0 cache was performed. New operations can
+  select the verified prepared CLI without MCP reloading. Existing wrappers
+  and chats may finish on their old paths before a coordinated later upgrade.
+
+Local evidence (ignored, not publication artifacts):
+`reports/CLI-Fallback-20261022/pytest.xml`, `dom.xml`, and the isolated
+`prepared-protocol.sqlite3`. Usage ships in
+`plugins/resource-coordinator/docs/CLI_FALLBACK.md`.
+
+An after-test install-state probe mistakenly passed `codex.exe` to Python and
+was rejected before launching Codex; this did not alter plugin state. The probe
+was repeated using the real CLI. No assertion was relaxed to obtain test success.
+
+## Still separate acceptance gates
+
+- Current Codex-native MCP tool loading; existing tools are not assumed reloaded.
+- Real outbox-driven host message delivery and receiver consumption. Mock
+  transport and a separate coordination message do not establish that chain.
+- Autonomous wakeup when all chats stop; this version still has no daemon.
+- Wheel distribution for 0.4.1, Linux/other Python CI, power-loss/disk-full
+  durability beyond the injected failure, large histories and OS-level locking.
+- Global adoption by other chats. Only each owner reports its own development
+  state. Native snapshots are observations, not feature acceptance or permission.
+
+# Historical 0.4.0 acceptance snapshot — 2026-10-22
 
 Classification: **tested local integration prototype** with host-agent-dispatched
 release handoffs. Not a background autonomous chat wakeup service.

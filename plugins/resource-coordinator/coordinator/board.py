@@ -191,7 +191,7 @@ class Board:
             notices = []
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='release_notices'").fetchone():
                 where, args = ("WHERE project_key=?", (project_key,)) if project_key else ("", ())
-                rows = db.execute(f"SELECT id,target_request,recipient,project_key,state,deadline,result_code,updated FROM release_notices {where} ORDER BY (state='delivered'),updated DESC,id LIMIT 201", args).fetchall()
+                rows = db.execute(f"SELECT id,target_request,recipient,project_key,state,deadline,result_code,updated FROM release_notices {where} ORDER BY (state IN ('delivered','obsolete')),updated DESC,id LIMIT 201", args).fetchall()
                 for row in rows[:200]:
                     item = dict(row)
                     if item["state"] == "sending" and item["deadline"] <= self.store.clock():

@@ -35,7 +35,7 @@ async def smoke(plugin, database, snapshot=None, observed_at=None):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = {tool.name for tool in (await session.list_tools()).tools}
-            assert len(tools) == 21 and {"coordination_board", "claim_release_notification", "acknowledge_release_notification"}.issubset(tools)
+            assert len(tools) == 23 and {"coordination_board", "claim_release_notification", "acknowledge_release_notification", "archive_obsolete_release_notification", "recover_managed_operation"}.issubset(tools)
 
             async def call(name, **arguments):
                 return data(await session.call_tool(name, arguments))

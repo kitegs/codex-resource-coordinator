@@ -49,9 +49,22 @@ def retry_failed_release_notification(notice_id: str, actor: str, confirmed_not_
 
 
 @server.tool()
+def archive_obsolete_release_notification(notice_id: str, actor: str) -> dict:
+    """Explicitly archive only an unclaimed notice whose target has left waiting. Never erase an uncertain delivery."""
+    return handoffs.archive_obsolete(notice_id, actor)
+
+
+@server.tool()
 def queue_status(request_id: str | None = None, include_finished: bool = False) -> dict:
     """Read reservations. Tokens are redacted. An expired reservation still blocks."""
     return {"requests": store.status(request_id, include_finished=include_finished)}
+
+
+@server.tool()
+def recover_managed_operation(request_id: str, owner: str) -> dict:
+    """Inspect a v0.5 job and release only after verified monitor/group exit. Never starts/restarts a command, kills, or sends messages. Legacy requests stay manual."""
+    from coordinator.operations import recover
+    return recover(store, request_id, owner)
 
 
 @server.tool()

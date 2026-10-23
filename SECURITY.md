@@ -27,6 +27,11 @@ isolate mutually untrusted users with access to its files.
   output. Message templates use generated request/notice identifiers, not peer
   prompts, purposes, source code or executable instructions from shared reports.
 - Normal execution-tool approvals and sandbox restrictions remain applicable.
+- Explicit reboot recovery verifies structured local OS startup events and CIM;
+  missing/unknown evidence stays blocking. New jobs bind a hash of MachineGuid,
+  while legacy rows additionally require an honest same-machine attestation.
+  This is not authentication of copied/cloned databases. Recovery records unknown
+  failure, never success, and neither starts payloads nor terminates processes.
 - The optional read-only panel binds only to IPv4 loopback. Its state API requires
   an ephemeral token supplied in a request header, validates Host/Origin, disables
   caching, and serves only three fixed assets. There are no state mutation routes.
@@ -35,6 +40,17 @@ isolate mutually untrusted users with access to its files.
   create/migrate databases or assume that imported peer status is fresh or accepted.
 - Do not publish security issues containing real credentials or private logs.
 
+The core has no model API calls, telemetry endpoint or automatic upload service.
+MCP replies, CLI output and panel data can still contain metadata explicitly
+provided by participants, such as resource names, local paths, work summaries,
+evidence references and process identities. Your agent host may send tool results
+to its model provider; this plugin does not control the host's data policy.
+Windows contained jobs also retain a hashed machine identifier and OS/process
+scope metadata for recovery. These runtime records are local, not public source.
+Git-ignore patterns prevent accidental staging of common outputs but are not
+access control or a guarantee that manually uploaded files are safe.
+
 For a proposed report, provide a minimal synthetic reproduction without private
-paths or data. A private reporting channel has not been established for this
-initial private prototype; do not assume public issues are confidential.
+paths or data. No dedicated confidential reporting channel is currently promised;
+do not assume public issues are confidential. Do not publish credentials or
+private logs while trying to report a security problem.
